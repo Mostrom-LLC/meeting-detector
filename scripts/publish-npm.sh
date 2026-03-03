@@ -144,13 +144,24 @@ PUBLISH_VERSION="$(node -p "require('./package.json').version")"
 echo "==> Building package"
 npm run build
 
-# Check if version already exists on registry
-if [ "$DRY_RUN" -eq 0 ]; then
+# Auto-increment version if current version exists on registry
+if [ -z "$VERSION" ]; then
   EXISTING_VERSION="$(npm view "${PACKAGE_NAME}@${PUBLISH_VERSION}" version 2>/dev/null || true)"
   if [ "$EXISTING_VERSION" = "$PUBLISH_VERSION" ]; then
-    echo "Error: ${PACKAGE_NAME}@${PUBLISH_VERSION} already exists on npm registry" >&2
-    echo "Use --version to bump the version first" >&2
-    exit 1
+    echo "==> Version ${PUBLISH_VERSION} already exists, auto-incrementing to next patch version"
+    npm version patch --no-git-tag-version
+    PUBLISH_VERSION="$(node -p "require('./package.json').version")"
+    echo "==> New version: ${PUBLISH_VERSION}"
+  fi
+else
+  # If version was explicitly set, check if it already exists
+  if [ "$DRY_RUN" -eq 0 ]; then
+    EXISTING_VERSION="$(npm view "${PACKAGE_NAME}@${PUBLISH_VERSION}" version 2>/dev/null || true)"
+    if [ "$EXISTING_VERSION" = "$PUBLISH_VERSION" ]; then
+      echo "Error: ${PACKAGE_NAME}@${PUBLISH_VERSION} already exists on npm registry" >&2
+      echo "Cannot publish the same version twice" >&2
+      exit 1
+    fi
   fi
 fi
 
