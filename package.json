@@ -1,6 +1,6 @@
 {
   "name": "@mostrom/meeting-detector",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Real-time meeting detection for macOS desktop apps",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,7 @@
   "author": "Kaiser White <kaise@mostrom.io>",
   "license": "MIT",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "repository": {
     "type": "git",

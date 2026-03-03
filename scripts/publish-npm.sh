@@ -23,7 +23,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 VERSION=""
 TAG="latest"
-ACCESS="restricted"
+ACCESS="public"
 OTP=""
 DRY_RUN=0
 
