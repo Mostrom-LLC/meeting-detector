@@ -15,7 +15,7 @@ Real-time meeting detection for macOS desktop apps using TCC (Transparency, Cons
 
 ### From npm (when published)
 ```bash
-npm install meeting-detector
+npm install @mostrom/meeting-detector
 ```
 
 ### Local development
@@ -31,7 +31,7 @@ npm run build
 # In your project's package.json
 {
   "dependencies": {
-    "meeting-detector": "file:../path/to/meeting-detector"
+    "@mostrom/meeting-detector": "file:../path/to/meeting-detector"
   }
 }
 ```
@@ -42,15 +42,15 @@ npm run build
 npm link
 
 # In your project directory
-npm link meeting-detector
+npm link @mostrom/meeting-detector
 ```
 
 ## Quick Start
 
 ### Simple API
 ```typescript
-import { detector } from 'meeting-detector';
-import type { MeetingSignal } from 'meeting-detector';
+import { detector } from '@mostrom/meeting-detector';
+import type { MeetingSignal } from '@mostrom/meeting-detector';
 
 const meetingDetector = detector((signal: MeetingSignal) => {
   console.log('Meeting event:', signal);
@@ -65,8 +65,8 @@ process.on('SIGINT', () => {
 
 ### Class API
 ```typescript
-import { MeetingDetector } from 'meeting-detector';
-import type { MeetingSignal } from 'meeting-detector';
+import { MeetingDetector } from '@mostrom/meeting-detector';
+import type { MeetingSignal } from '@mostrom/meeting-detector';
 
 const detector = new MeetingDetector({ debug: true });
 

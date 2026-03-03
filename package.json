@@ -1,5 +1,5 @@
 {
-  "name": "meeting-detector",
+  "name": "@mostrom/meeting-detector",
   "version": "1.0.0",
   "description": "Real-time meeting detection for macOS desktop apps",
   "type": "module",
@@ -24,8 +24,19 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": ["meeting", "detection", "macos", "tcc", "privacy"],
-  "author": "",
+  "author": "Kaiser White <kaise@mostrom.io>",
   "license": "MIT",
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaisewhite/meeting-detector.git"
+  },
+  "homepage": "https://github.com/kaisewhite/meeting-detector#readme",
+  "bugs": {
+    "url": "https://github.com/kaisewhite/meeting-detector/issues"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "ts-node": "^10.9.0",
