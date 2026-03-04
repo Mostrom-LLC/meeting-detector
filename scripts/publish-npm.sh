@@ -112,8 +112,9 @@ NPM_USER="$(npm whoami)"
 echo "==> Authenticated as: ${NPM_USER}"
 
 # Get current package info
-PACKAGE_NAME="$(node -p "require('./package.json').name")"
-CURRENT_VERSION="$(node -p "require('./package.json').version")"
+PACKAGE_DIR="${ROOT_DIR}/packages/meeting-detector"
+PACKAGE_NAME="$(node -p "require('${PACKAGE_DIR}/package.json').name")"
+CURRENT_VERSION="$(node -p "require('${PACKAGE_DIR}/package.json').version")"
 echo "==> Package: ${PACKAGE_NAME}"
 echo "==> Current version: ${CURRENT_VERSION}"
 
@@ -122,13 +123,13 @@ if [ -n "$VERSION" ]; then
   case "$VERSION" in
     patch|minor|major)
       echo "==> Bumping ${VERSION} version"
-      npm version "$VERSION" --no-git-tag-version
-      NEW_VERSION="$(node -p "require('./package.json').version")"
+      npm --prefix "${PACKAGE_DIR}" version "$VERSION" --no-git-tag-version
+      NEW_VERSION="$(node -p "require('${PACKAGE_DIR}/package.json').version")"
       echo "==> New version: ${NEW_VERSION}"
       ;;
     [0-9]*)
       echo "==> Setting version to ${VERSION}"
-      npm version "$VERSION" --no-git-tag-version
+      npm --prefix "${PACKAGE_DIR}" version "$VERSION" --no-git-tag-version
       ;;
     *)
       echo "Error: Invalid version: $VERSION" >&2
@@ -138,19 +139,19 @@ if [ -n "$VERSION" ]; then
   esac
 fi
 
-PUBLISH_VERSION="$(node -p "require('./package.json').version")"
+PUBLISH_VERSION="$(node -p "require('${PACKAGE_DIR}/package.json').version")"
 
 # Build the package
 echo "==> Building package"
-npm run build
+npm --prefix "${PACKAGE_DIR}" run build
 
 # Auto-increment version if current version exists on registry
 if [ -z "$VERSION" ]; then
   EXISTING_VERSION="$(npm view "${PACKAGE_NAME}@${PUBLISH_VERSION}" version 2>/dev/null || true)"
   if [ "$EXISTING_VERSION" = "$PUBLISH_VERSION" ]; then
     echo "==> Version ${PUBLISH_VERSION} already exists, auto-incrementing to next patch version"
-    npm version patch --no-git-tag-version
-    PUBLISH_VERSION="$(node -p "require('./package.json').version")"
+    npm --prefix "${PACKAGE_DIR}" version patch --no-git-tag-version
+    PUBLISH_VERSION="$(node -p "require('${PACKAGE_DIR}/package.json').version")"
     echo "==> New version: ${PUBLISH_VERSION}"
   fi
 else
@@ -168,13 +169,13 @@ fi
 # Publish the package
 echo "==> Publishing ${PACKAGE_NAME}@${PUBLISH_VERSION}"
 if [ "$DRY_RUN" -eq 1 ]; then
-  npm publish --access "$ACCESS" --tag "$TAG" --dry-run
+  (cd "${PACKAGE_DIR}" && npm publish --access "$ACCESS" --tag "$TAG" --dry-run)
   echo "==> Dry run completed successfully"
 else
   if [ -n "$OTP" ]; then
-    npm publish --access "$ACCESS" --tag "$TAG" --otp "$OTP"
+    (cd "${PACKAGE_DIR}" && npm publish --access "$ACCESS" --tag "$TAG" --otp "$OTP")
   else
-    npm publish --access "$ACCESS" --tag "$TAG"
+    (cd "${PACKAGE_DIR}" && npm publish --access "$ACCESS" --tag "$TAG")
   fi
   echo "==> Published ${PACKAGE_NAME}@${PUBLISH_VERSION}"
   echo "==> View at: https://www.npmjs.com/package/${PACKAGE_NAME}"

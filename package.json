@@ -1,59 +1,13 @@
 {
-  "name": "@mostrom/meeting-detector",
-  "version": "1.0.2",
-  "description": "Real-time meeting detection for macOS desktop apps",
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
-  "files": [
-    "dist/**/*",
-    "meeting-detect.sh",
-    "README.md"
+  "private": true,
+  "workspaces": [
+    "packages/*"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "ts-node src/index.ts",
-    "start": "node dist/index.js",
-    "watch": "tsc -w",
-    "prepublishOnly": "npm run build",
-    "publish:npm": "bash ./scripts/publish-npm.sh"
+    "build": "npm --prefix ./packages/meeting-detector run build",
+    "dev": "npm --prefix ./packages/meeting-detector run dev",
+    "publish:npm": "bash ./scripts/publish-npm.sh",
+    "publish:npm:dry-run": "bash ./scripts/publish-npm.sh --dry-run"
   },
-  "keywords": [
-    "meeting",
-    "detection",
-    "macos",
-    "tcc",
-    "privacy"
-  ],
-  "author": "Kaiser White <kaise@mostrom.io>",
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kaisewhite/meeting-detector.git"
-  },
-  "homepage": "https://github.com/kaisewhite/meeting-detector#readme",
-  "bugs": {
-    "url": "https://github.com/kaisewhite/meeting-detector/issues"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0"
-  },
-  "dependencies": {},
-  "os": [
-    "darwin"
-  ],
-  "engines": {
-    "node": ">=14.0.0"
-  }
+  "devDependencies": {}
 }
