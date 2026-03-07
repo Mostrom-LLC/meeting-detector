@@ -165,6 +165,36 @@ test('handles repeated join/leave cycles without stale state', async () => {
   assert.equal(result.started[1].platform, 'Microsoft Teams');
 });
 
+test('startup probe does not emit lifecycle events after detector is stopped immediately', async () => {
+  // P2 guard: async probe callbacks must abort if stop() was already called.
+  const dir = mkdtempSync(join(tmpdir(), 'meeting-test-'));
+  const scriptPath = join(dir, 'emit.sh');
+  // Script that blocks long enough for the probe callbacks to fire
+  writeFileSync(scriptPath, '#!/bin/sh\nsleep 5\n', 'utf8');
+  chmodSync(scriptPath, 0o755);
+
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: true,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  const events = [];
+  detector.on('meeting_started', e => events.push(e));
+  detector.on('meeting', e => events.push(e));
+
+  detector.start();
+  // Immediately stop — probe sub-processes are still running
+  detector.stop();
+
+  // Wait long enough for both cameraProbe and procProbe callbacks to complete
+  await new Promise(r => setTimeout(r, 2000));
+
+  assert.equal(events.length, 0, 'No events should fire after immediate stop()');
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test('maintains platform identity when meeting is backgrounded and front app is unrelated', async () => {
   const result = await runScenario([
     {

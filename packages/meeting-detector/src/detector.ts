@@ -595,32 +595,11 @@ export class MeetingDetector extends EventEmitter {
       return signal;
     }
 
-    if (!pending) {
-      this.pendingConfidence.set(key, {
-        firstSeen: now,
-        lastSeen: now,
-        count: 1,
-        signal
-      });
-      return null;
-    }
-
-    pending.lastSeen = now;
-    pending.count += 1;
-    pending.signal = signal;
-
-    const duration = now - pending.firstSeen;
-    if (
-      pending.count >= MeetingDetector.LOW_CONFIDENCE_FALLBACK_MIN_SIGNALS &&
-      duration >= MeetingDetector.LOW_CONFIDENCE_FALLBACK_MIN_DURATION_MS
-    ) {
-      this.pendingConfidence.delete(key);
-      if (this.options.debug) {
-        console.log('[MeetingDetector] Promoting low-confidence signal after sustained activity:', signal);
-      }
-      return signal;
-    }
-
+    // For precheck-prone services (Teams, Zoom, Webex, Slack) only strong evidence
+    // is trusted. These apps continuously send preflight checks even when idle, so
+    // the burst+sparse-follow-up pattern would satisfy any time/count threshold.
+    // Real meetings from these apps produce FORWARD events (preflight=false) which
+    // are caught by hasStrongMeetingEvidence above.
     return null;
   }
 
@@ -809,9 +788,13 @@ export class MeetingDetector extends EventEmitter {
       'pgrep -xq VDCAssistant 2>/dev/null || pgrep -xq AppleCameraAssistant 2>/dev/null'
     ]);
     cameraProbe.on('close', (cameraCode) => {
+      // P2 guard: abort if the detector was stopped before this callback fired.
+      if (!this.process) return;
       if (cameraCode !== 0) return; // Camera not active — no meeting in progress.
 
-      // Camera is active. Identify which meeting platform is running.
+      // Camera is active. Check ALL candidates in parallel (not short-circuit) so we can
+      // detect ambiguity: if multiple meeting apps are running we cannot infer which is
+      // the active one from process presence alone.
       const candidates: Array<[string, MeetingPlatform]> = [
         ['Microsoft Teams', 'Microsoft Teams'],
         ['zoom.us', 'Zoom'],
@@ -821,18 +804,33 @@ export class MeetingDetector extends EventEmitter {
         ['FaceTime', 'FaceTime'],
       ];
 
+      // Run each check independently (semicolon-separated, not ||) so every match prints.
       const checkScript = candidates
-        .map(([proc, label]) => `pgrep -xq "${proc}" 2>/dev/null && echo "${label}"`)
-        .join(' || ');
+        .map(([proc, label]) => `pgrep -xq "${proc}" 2>/dev/null && echo "${label}"; true`)
+        .join('; ');
 
       const procProbe = spawn('sh', ['-c', checkScript]);
       let output = '';
       procProbe.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
       procProbe.on('close', () => {
-        const found = candidates.find(([, label]) => output.includes(label));
-        if (!found) return; // Camera active but no known meeting process found.
+        // P2 guard: abort if the detector was stopped while the probe was running.
+        if (!this.process) return;
 
-        const [procName, platform] = found;
+        const matched = candidates.filter(([, label]) => output.includes(label));
+
+        // P1 guard: only emit when exactly one meeting app is running.
+        // If multiple are present we cannot reliably identify which is active.
+        if (matched.length !== 1) {
+          if (this.options.debug) {
+            console.log(
+              '[MeetingDetector] Startup probe skipped: ambiguous or no match',
+              matched.map(([, l]) => l)
+            );
+          }
+          return;
+        }
+
+        const [procName, platform] = matched[0];
         const now = new Date().toISOString().slice(0, 19) + 'Z';
         const syntheticSignal: MeetingSignal = {
           event: 'meeting_signal',
