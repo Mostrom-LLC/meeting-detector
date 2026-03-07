@@ -234,3 +234,53 @@ After fix, `process_path` now contains the clean process name (e.g., `Google Chr
 
 ### Residual Risk
 - Browser-based Chrome helper classification still depends on foreground context in some cases, so background Google Meet attribution can remain imperfect without URL-level browser introspection.
+
+---
+
+# Meeting Detector Criteria Completion - 2026-03-07 (session 4)
+
+## Plan
+- [x] Map `Tasks/success-criteria.md` requirements to concrete macOS-scoped implementation targets
+- [x] Add lifecycle hooks and state machine (`meeting_started`, `meeting_changed`, `meeting_ended`) with end-timeout inference
+- [x] Add uncertainty-safe classification behavior (`Unknown` or no detection) instead of fallback guessing
+- [x] Add privacy-first output behavior to avoid exposing sensitive meeting metadata by default
+- [x] Add automated detector tests covering join/start/end/switch/uncertain/rejoin scenarios
+- [x] Update README/types to reflect final API and macOS scope
+- [x] Run build + tests + behavior verification and document completion status
+
+## Review
+- [x] Completed
+
+### What Was Implemented
+- Added lifecycle API and state machine in detector:
+  - `meeting_started`, `meeting_changed`, `meeting_ended`
+  - end inference via `meetingEndTimeoutMs`
+  - startup active-meeting probe (`startupProbe`)
+- Added uncertainty-safe platform normalization:
+  - unknown/ambiguous signals become `Unknown` (or are suppressed by default)
+  - removed fallback guessing to arbitrary app names
+  - normalized naming includes `Cisco Webex`
+- Added privacy-first output behavior:
+  - sensitive fields (`window_title`, `chrome_url`) are redacted in emitted raw signals by default
+  - optional opt-in for sensitive/raw payload exposure
+- Added API/options in types:
+  - `MeetingLifecycleEvent`, `MeetingPlatform`
+  - options: `meetingEndTimeoutMs`, `emitUnknown`, `includeSensitiveMetadata`, `includeRawSignalInLifecycle`, `startupProbe`
+- Updated docs:
+  - lifecycle hooks and new options documented in package README
+
+### Verification
+- Build + tests pass:
+  - command: `npm run test`
+  - result: 8/8 passing tests in `packages/meeting-detector/test/detector.lifecycle.test.mjs`
+- Covered by automated tests:
+  - launch preflight non-emit
+  - start + timeout end
+  - platform switch (`meeting_changed`)
+  - unknown suppression + optional unknown emission
+  - privacy redaction defaults
+  - repeated join/leave cycle handling
+  - background/stale-front-app native attribution stability
+
+### macOS Success-Criteria Status
+- Marked complete for the macOS-focused scope requested by user (cross-OS explicitly deferred).

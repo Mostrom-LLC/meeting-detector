@@ -2,7 +2,15 @@ import { spawn, ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { MeetingSignal, MeetingDetectorOptions, MeetingEventCallback, ErrorEventCallback } from './types.js';
+import {
+  MeetingSignal,
+  MeetingDetectorOptions,
+  MeetingEventCallback,
+  ErrorEventCallback,
+  MeetingLifecycleEvent,
+  MeetingLifecycleCallback,
+  MeetingPlatform,
+} from './types.js';
 
 interface SessionInfo {
   lastSeen: number;
@@ -21,6 +29,13 @@ interface ServiceContext {
   windowTitle?: string;
 }
 
+interface ActiveMeetingState {
+  platform: MeetingPlatform;
+  lastSeen: number;
+  confidence: MeetingLifecycleEvent['confidence'];
+  signal: MeetingSignal;
+}
+
 export class MeetingDetector extends EventEmitter {
   private static readonly LOW_CONFIDENCE_WINDOW_MS = 45000;
   private static readonly LOW_CONFIDENCE_FALLBACK_MIN_SIGNALS = 4;
@@ -28,7 +43,7 @@ export class MeetingDetector extends EventEmitter {
   private static readonly PRECHECK_PRONE_SERVICES = new Set([
     'microsoft teams',
     'zoom',
-    'webex',
+    'cisco webex',
     'slack'
   ]);
 
@@ -37,6 +52,8 @@ export class MeetingDetector extends EventEmitter {
   private activeSessions: Map<string, SessionInfo> = new Map();
   private pendingConfidence: Map<string, PendingConfidenceSignal> = new Map();
   private serviceContext: Map<string, ServiceContext> = new Map();
+  private activeMeeting: ActiveMeetingState | null = null;
+  private meetingEndTimer?: NodeJS.Timeout;
 
   constructor(options: MeetingDetectorOptions = {}) {
     super();
@@ -50,7 +67,12 @@ export class MeetingDetector extends EventEmitter {
     this.options = {
       scriptPath: defaultScriptPath,
       debug: options.debug || false,
-      sessionDeduplicationMs: options.sessionDeduplicationMs || 60000
+      sessionDeduplicationMs: options.sessionDeduplicationMs || 60000,
+      meetingEndTimeoutMs: options.meetingEndTimeoutMs || 30000,
+      emitUnknown: options.emitUnknown || false,
+      includeSensitiveMetadata: options.includeSensitiveMetadata || false,
+      includeRawSignalInLifecycle: options.includeRawSignalInLifecycle || false,
+      startupProbe: options.startupProbe !== false
     };
   }
 
@@ -70,6 +92,13 @@ export class MeetingDetector extends EventEmitter {
     this.process = spawn('sh', [this.options.scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
+
+    // Probe for an already-active meeting so detectors that start mid-call emit immediately.
+    if (this.options.startupProbe) {
+      this.probeActiveMeetingAtStartup();
+    }
+
+    let stderrBuffer = '';
 
     this.process.stdout?.on('data', (data: Buffer) => {
       const lines = data.toString().trim().split('\n');
@@ -94,6 +123,8 @@ export class MeetingDetector extends EventEmitter {
               continue;
             }
 
+            this.updateMeetingLifecycle(confidentSignal);
+
             if (this.isDuplicateSession(confidentSignal)) {
               if (this.options.debug) {
                 console.log('[MeetingDetector] Skipping duplicate session:', confidentSignal);
@@ -101,10 +132,11 @@ export class MeetingDetector extends EventEmitter {
               continue;
             }
 
+            const outputSignal = this.sanitizeSignalForOutput(confidentSignal);
             if (this.options.debug) {
-              console.log('[MeetingDetector] Parsed signal:', confidentSignal);
+              console.log('[MeetingDetector] Parsed signal:', outputSignal);
             }
-            this.emit('meeting', confidentSignal);
+            this.emit('meeting', outputSignal);
           } catch (error) {
             if (this.options.debug) {
               console.log('[MeetingDetector] Failed to parse line:', line);
@@ -116,8 +148,10 @@ export class MeetingDetector extends EventEmitter {
     });
 
     this.process.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stderrBuffer += text;
       if (this.options.debug) {
-        console.log('[MeetingDetector] stderr:', data.toString());
+        console.log('[MeetingDetector] stderr:', text);
       }
     });
 
@@ -128,6 +162,30 @@ export class MeetingDetector extends EventEmitter {
     this.process.on('exit', (code, signal) => {
       if (this.options.debug) {
         console.log(`[MeetingDetector] Process exited with code ${code}, signal ${signal}`);
+      }
+      // Detect permission errors: log stream exits immediately with non-zero code and
+      // a relevant message when macOS privacy access has not been granted.
+      if (code !== 0 && code !== null && !signal) {
+        const stderr = stderrBuffer.toLowerCase();
+        if (
+          stderr.includes('not allowed') ||
+          stderr.includes('authorization') ||
+          stderr.includes('permission denied') ||
+          stderr.includes('operation not permitted')
+        ) {
+          this.emit('error', new Error(
+            'Meeting detector failed to access macOS privacy logs (exit code ' + code + '). ' +
+            'Grant Full Disk Access or Automation permissions in System Settings > Privacy & Security.'
+          ));
+        }
+      }
+      if (this.meetingEndTimer) {
+        clearTimeout(this.meetingEndTimer);
+        this.meetingEndTimer = undefined;
+      }
+      if (this.activeMeeting) {
+        this.emitMeetingLifecycle('meeting_ended', this.activeMeeting.platform, this.activeMeeting.confidence, 'stop', this.activeMeeting.signal);
+        this.activeMeeting = null;
       }
       this.process = undefined;
       this.emit('exit', { code, signal });
@@ -145,6 +203,15 @@ export class MeetingDetector extends EventEmitter {
     if (this.process) {
       this.process.kill('SIGTERM');
       this.process = undefined;
+
+      if (this.meetingEndTimer) {
+        clearTimeout(this.meetingEndTimer);
+        this.meetingEndTimer = undefined;
+      }
+      if (this.activeMeeting) {
+        this.emitMeetingLifecycle('meeting_ended', this.activeMeeting.platform, this.activeMeeting.confidence, 'stop', this.activeMeeting.signal);
+      }
+      this.activeMeeting = null;
 
       // Clear active sessions when stopping
       this.activeSessions.clear();
@@ -176,6 +243,21 @@ export class MeetingDetector extends EventEmitter {
    */
   public onError(callback: ErrorEventCallback): void {
     this.on('error', callback);
+  }
+
+  /**
+   * Add lifecycle event listeners
+   */
+  public onMeetingStarted(callback: MeetingLifecycleCallback): void {
+    this.on('meeting_started', callback);
+  }
+
+  public onMeetingChanged(callback: MeetingLifecycleCallback): void {
+    this.on('meeting_changed', callback);
+  }
+
+  public onMeetingEnded(callback: MeetingLifecycleCallback): void {
+    this.on('meeting_ended', callback);
   }
 
   /**
@@ -224,6 +306,10 @@ export class MeetingDetector extends EventEmitter {
     const processName = signal.process?.toLowerCase() || '';
     const serviceName = signal.service?.toLowerCase() || '';
 
+    if (serviceName === 'unknown' && !this.options.emitUnknown) {
+      return true;
+    }
+
     // Filter by process name patterns (partial match)
     if (systemProcessPatterns.some(pattern => processName.includes(pattern))) {
       return true;
@@ -264,6 +350,148 @@ export class MeetingDetector extends EventEmitter {
     return false;
   }
 
+  private sanitizeSignalForOutput(signal: MeetingSignal): MeetingSignal {
+    if (this.options.includeSensitiveMetadata) {
+      return { ...signal };
+    }
+    return {
+      ...signal,
+      window_title: '',
+      chrome_url: undefined,
+    };
+  }
+
+  private normalizePlatform(service: string): MeetingPlatform {
+    const key = (service || '').trim().toLowerCase();
+    if (!key) return 'Unknown';
+    if (key === 'microsoft teams') return 'Microsoft Teams';
+    if (key === 'zoom') return 'Zoom';
+    if (key === 'google meet') return 'Google Meet';
+    if (key === 'slack') return 'Slack';
+    if (key === 'webex' || key === 'cisco webex') return 'Cisco Webex';
+    if (key === 'discord') return 'Discord';
+    if (key === 'facetime') return 'FaceTime';
+    if (key === 'skype') return 'Skype';
+    if (key === 'whereby') return 'Whereby';
+    if (key === 'gotomeeting') return 'GoToMeeting';
+    if (key === 'bluejeans') return 'BlueJeans';
+    if (key === 'jitsi meet') return 'Jitsi Meet';
+    if (key === '8x8') return '8x8';
+    if (key === 'ringcentral') return 'RingCentral';
+    if (key === 'bigbluebutton') return 'BigBlueButton';
+    if (key === 'amazon chime') return 'Amazon Chime';
+    if (key === 'google hangouts') return 'Google Hangouts';
+    if (key === 'adobe connect') return 'Adobe Connect';
+    if (key === 'teamviewer') return 'TeamViewer';
+    if (key === 'anydesk') return 'AnyDesk';
+    if (key === 'clickmeeting') return 'ClickMeeting';
+    if (key === 'appear.in') return 'Appear.in';
+    return 'Unknown';
+  }
+
+  private getSignalConfidence(signal: MeetingSignal): MeetingLifecycleEvent['confidence'] {
+    if (signal.verdict === 'allowed' || signal.preflight === false) {
+      return 'high';
+    }
+    if ((signal.window_title && signal.window_title.trim() !== '') || signal.camera_active) {
+      return 'medium';
+    }
+    return 'low';
+  }
+
+  private emitMeetingLifecycle(
+    event: MeetingLifecycleEvent['event'],
+    platform: MeetingPlatform,
+    confidence: MeetingLifecycleEvent['confidence'],
+    reason: MeetingLifecycleEvent['reason'],
+    signal: MeetingSignal,
+    previousPlatform?: MeetingPlatform
+  ): void {
+    const payload: MeetingLifecycleEvent = {
+      event,
+      timestamp: new Date().toISOString(),
+      platform,
+      confidence,
+      reason,
+      previous_platform: previousPlatform,
+      raw_signal: this.options.includeRawSignalInLifecycle ? this.sanitizeSignalForOutput(signal) : undefined,
+    };
+    this.emit(event, payload);
+    this.emit('meeting_lifecycle', payload);
+  }
+
+  private scheduleMeetingEndCheck(): void {
+    if (this.meetingEndTimer) {
+      clearTimeout(this.meetingEndTimer);
+    }
+    if (!this.activeMeeting) {
+      this.meetingEndTimer = undefined;
+      return;
+    }
+    this.meetingEndTimer = setTimeout(() => {
+      this.handleMeetingEndTimeout();
+    }, this.options.meetingEndTimeoutMs);
+    this.meetingEndTimer.unref?.();
+  }
+
+  private handleMeetingEndTimeout(): void {
+    if (!this.activeMeeting) {
+      this.meetingEndTimer = undefined;
+      return;
+    }
+
+    const idleMs = Date.now() - this.activeMeeting.lastSeen;
+    if (idleMs >= this.options.meetingEndTimeoutMs) {
+      const ended = this.activeMeeting;
+      this.activeMeeting = null;
+      this.meetingEndTimer = undefined;
+      this.emitMeetingLifecycle('meeting_ended', ended.platform, ended.confidence, 'timeout', ended.signal);
+      return;
+    }
+
+    this.scheduleMeetingEndCheck();
+  }
+
+  private updateMeetingLifecycle(signal: MeetingSignal): void {
+    const platform = this.normalizePlatform(signal.service);
+    if (platform === 'Unknown' && !this.options.emitUnknown) {
+      return;
+    }
+
+    const confidence = this.getSignalConfidence(signal);
+    const now = Date.now();
+
+    if (!this.activeMeeting) {
+      this.activeMeeting = {
+        platform,
+        lastSeen: now,
+        confidence,
+        signal,
+      };
+      this.emitMeetingLifecycle('meeting_started', platform, confidence, 'signal', signal);
+      this.scheduleMeetingEndCheck();
+      return;
+    }
+
+    if (this.activeMeeting.platform !== platform) {
+      const previousPlatform = this.activeMeeting.platform;
+      this.activeMeeting = {
+        platform,
+        lastSeen: now,
+        confidence,
+        signal,
+      };
+      this.emitMeetingLifecycle('meeting_changed', platform, confidence, 'switch', signal, previousPlatform);
+      this.scheduleMeetingEndCheck();
+      return;
+    }
+
+    this.activeMeeting.lastSeen = now;
+    this.activeMeeting.confidence = confidence;
+    this.activeMeeting.signal = signal;
+    this.scheduleMeetingEndCheck();
+  }
+
   private getServiceKey(signal: MeetingSignal): string {
     return (signal.service || signal.front_app || signal.process || '').toLowerCase();
   }
@@ -282,7 +510,7 @@ export class MeetingDetector extends EventEmitter {
     if (s === 'zoom') {
       return f.includes('zoom');
     }
-    if (s === 'webex') {
+    if (s === 'cisco webex') {
       return f.includes('webex');
     }
     if (s === 'slack') {
@@ -462,7 +690,7 @@ export class MeetingDetector extends EventEmitter {
 
     // Use transformed app name as service if the original service is a system service like 'microphone' or 'camera'
     const originalService = signal.service || '';
-    const transformedService = this.transformAppName(signal.front_app, signal.process, chromeUrl);
+    const transformedService = this.transformAppName(signal.front_app, signal.process, signal.window_title || '', chromeUrl);
     const finalService = (originalService === 'microphone' || originalService === 'camera' || !originalService)
       ? transformedService
       : originalService;
@@ -489,9 +717,10 @@ export class MeetingDetector extends EventEmitter {
     return patterns.some((pattern) => value.includes(pattern));
   }
 
-  private transformAppName(frontApp: string, process: string, chromeUrl = ''): string {
+  private transformAppName(frontApp: string, process: string, windowTitle = '', chromeUrl = ''): MeetingPlatform {
     const app = frontApp?.toLowerCase() || '';
     const proc = process?.toLowerCase() || '';
+    const title = windowTitle?.toLowerCase() || '';
     const url = chromeUrl.toLowerCase();
 
     // For Chrome Helper processes, the active tab URL is the definitive source —
@@ -500,7 +729,7 @@ export class MeetingDetector extends EventEmitter {
       if (url.includes('meet.google.com')) return 'Google Meet';
       if (url.includes('zoom.us/wc/') || url.includes('zoom.us/j/')) return 'Zoom';
       if (url.includes('teams.microsoft.com') || url.includes('teams.live.com')) return 'Microsoft Teams';
-      if (url.includes('web.webex.com') || url.includes('webex.com/meet')) return 'Webex';
+      if (url.includes('web.webex.com') || url.includes('webex.com/meet')) return 'Cisco Webex';
       if (url.includes('app.slack.com') && url.includes('huddle')) return 'Slack';
       if (url.includes('meet.jit.si') || url.includes('jitsi')) return 'Jitsi Meet';
       if (url.includes('whereby.com')) return 'Whereby';
@@ -513,9 +742,12 @@ export class MeetingDetector extends EventEmitter {
     // Prefer process identity next because front_app sampling can be stale.
     if (this.includesAny(proc, ['microsoft teams', 'msteams'])) return 'Microsoft Teams';
     if (this.includesAny(proc, ['zoom'])) return 'Zoom';
-    if (this.includesAny(proc, ['webex', 'cisco webex'])) return 'Webex';
+    if (this.includesAny(proc, ['webex', 'cisco webex'])) return 'Cisco Webex';
     if (this.includesAny(proc, ['slack'])) return 'Slack';
     if (this.includesAny(proc, ['google meet', 'meet.google.com'])) return 'Google Meet';
+    if (proc.includes('chrome') && (title.includes('meet.google.com') || /[a-z]{3}-[a-z]{4}-[a-z]{3}/.test(title))) {
+      return 'Google Meet';
+    }
     if (this.includesAny(proc, ['skype'])) return 'Skype';
     if (this.includesAny(proc, ['discord'])) return 'Discord';
     if (this.includesAny(proc, ['facetime'])) return 'FaceTime';
@@ -539,10 +771,12 @@ export class MeetingDetector extends EventEmitter {
     // — only use it when we have no better signal.
     if (this.includesAny(app, ['microsoft teams', 'msteams'])) return 'Microsoft Teams';
     if (this.includesAny(app, ['zoom'])) return 'Zoom';
-    if (this.includesAny(app, ['webex'])) return 'Webex';
+    if (this.includesAny(app, ['webex'])) return 'Cisco Webex';
     if (this.includesAny(app, ['slack'])) return 'Slack';
     if (this.includesAny(app, ['google meet'])) return 'Google Meet';
-    if (this.includesAny(app, ['chrome'])) return 'Google Meet';
+    if (this.includesAny(app, ['chrome']) && (title.includes('meet.google.com') || /[a-z]{3}-[a-z]{4}-[a-z]{3}/.test(title))) {
+      return 'Google Meet';
+    }
     if (this.includesAny(app, ['skype'])) return 'Skype';
     if (this.includesAny(app, ['discord'])) return 'Discord';
     if (this.includesAny(app, ['facetime'])) return 'FaceTime';
@@ -560,8 +794,71 @@ export class MeetingDetector extends EventEmitter {
     if (this.includesAny(app, ['clickmeeting'])) return 'ClickMeeting';
     if (this.includesAny(app, ['appear.in'])) return 'Appear.in';
 
-    // Final fallback.
-    return frontApp || 'Meeting App';
+    // Final fallback: do not guess.
+    return 'Unknown';
+  }
+
+  /**
+   * Check at startup whether a supported meeting is already active.
+   * Emits a synthetic meeting_started lifecycle event if found.
+   * This handles the case where the detector starts while a call is already in progress.
+   */
+  private probeActiveMeetingAtStartup(): void {
+    // Check whether the camera daemon is already running (indicates active camera use).
+    const cameraProbe = spawn('sh', ['-c',
+      'pgrep -xq VDCAssistant 2>/dev/null || pgrep -xq AppleCameraAssistant 2>/dev/null'
+    ]);
+    cameraProbe.on('close', (cameraCode) => {
+      if (cameraCode !== 0) return; // Camera not active — no meeting in progress.
+
+      // Camera is active. Identify which meeting platform is running.
+      const candidates: Array<[string, MeetingPlatform]> = [
+        ['Microsoft Teams', 'Microsoft Teams'],
+        ['zoom.us', 'Zoom'],
+        ['Webex', 'Cisco Webex'],
+        ['Slack', 'Slack'],
+        ['Discord', 'Discord'],
+        ['FaceTime', 'FaceTime'],
+      ];
+
+      const checkScript = candidates
+        .map(([proc, label]) => `pgrep -xq "${proc}" 2>/dev/null && echo "${label}"`)
+        .join(' || ');
+
+      const procProbe = spawn('sh', ['-c', checkScript]);
+      let output = '';
+      procProbe.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
+      procProbe.on('close', () => {
+        const found = candidates.find(([, label]) => output.includes(label));
+        if (!found) return; // Camera active but no known meeting process found.
+
+        const [procName, platform] = found;
+        const now = new Date().toISOString().slice(0, 19) + 'Z';
+        const syntheticSignal: MeetingSignal = {
+          event: 'meeting_signal',
+          timestamp: now,
+          service: platform,
+          verdict: 'allowed',
+          preflight: false,
+          process: procName,
+          pid: '',
+          parent_pid: '',
+          process_path: '',
+          front_app: procName,
+          window_title: '',
+          session_id: '',
+          camera_active: true,
+        };
+
+        if (this.options.debug) {
+          console.log('[MeetingDetector] Startup probe found active meeting:', platform);
+        }
+
+        this.updateMeetingLifecycle(syntheticSignal);
+        const outputSignal = this.sanitizeSignalForOutput(syntheticSignal);
+        this.emit('meeting', outputSignal);
+      });
+    });
   }
 }
 

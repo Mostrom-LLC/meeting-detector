@@ -5,6 +5,7 @@
   ],
   "scripts": {
     "build": "npm --prefix ./packages/meeting-detector run build",
+    "test": "npm --prefix ./packages/meeting-detector run test",
     "dev": "npm --prefix ./packages/meeting-detector run dev",
     "publish:npm": "bash ./scripts/publish-npm.sh",
     "publish:npm:dry-run": "bash ./scripts/publish-npm.sh --dry-run"

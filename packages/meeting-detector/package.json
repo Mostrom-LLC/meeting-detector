@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test test/**/*.test.mjs",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "watch": "tsc -w",
