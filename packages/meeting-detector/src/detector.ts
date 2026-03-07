@@ -9,10 +9,34 @@ interface SessionInfo {
   signal: MeetingSignal;
 }
 
+interface PendingConfidenceSignal {
+  firstSeen: number;
+  lastSeen: number;
+  count: number;
+  signal: MeetingSignal;
+}
+
+interface ServiceContext {
+  frontApp?: string;
+  windowTitle?: string;
+}
+
 export class MeetingDetector extends EventEmitter {
+  private static readonly LOW_CONFIDENCE_WINDOW_MS = 45000;
+  private static readonly LOW_CONFIDENCE_FALLBACK_MIN_SIGNALS = 4;
+  private static readonly LOW_CONFIDENCE_FALLBACK_MIN_DURATION_MS = 30000;
+  private static readonly PRECHECK_PRONE_SERVICES = new Set([
+    'microsoft teams',
+    'zoom',
+    'webex',
+    'slack'
+  ]);
+
   private process?: ChildProcess;
   private options: Required<MeetingDetectorOptions>;
   private activeSessions: Map<string, SessionInfo> = new Map();
+  private pendingConfidence: Map<string, PendingConfidenceSignal> = new Map();
+  private serviceContext: Map<string, ServiceContext> = new Map();
 
   constructor(options: MeetingDetectorOptions = {}) {
     super();
@@ -53,7 +77,8 @@ export class MeetingDetector extends EventEmitter {
       for (const line of lines) {
         if (line.trim()) {
           try {
-            const signal = this.parseSignal(line);
+            const parsedSignal = this.parseSignal(line);
+            const signal = this.stabilizeSignalContext(parsedSignal);
             if (this.shouldIgnoreSignal(signal)) {
               if (this.options.debug) {
                 console.log('[MeetingDetector] Ignoring signal:', signal);
@@ -61,17 +86,25 @@ export class MeetingDetector extends EventEmitter {
               continue;
             }
 
-            if (this.isDuplicateSession(signal)) {
+            const confidentSignal = this.resolveConfidence(signal);
+            if (!confidentSignal) {
               if (this.options.debug) {
-                console.log('[MeetingDetector] Skipping duplicate session:', signal);
+                console.log('[MeetingDetector] Holding low-confidence signal:', signal);
+              }
+              continue;
+            }
+
+            if (this.isDuplicateSession(confidentSignal)) {
+              if (this.options.debug) {
+                console.log('[MeetingDetector] Skipping duplicate session:', confidentSignal);
               }
               continue;
             }
 
             if (this.options.debug) {
-              console.log('[MeetingDetector] Parsed signal:', signal);
+              console.log('[MeetingDetector] Parsed signal:', confidentSignal);
             }
-            this.emit('meeting', signal);
+            this.emit('meeting', confidentSignal);
           } catch (error) {
             if (this.options.debug) {
               console.log('[MeetingDetector] Failed to parse line:', line);
@@ -115,6 +148,8 @@ export class MeetingDetector extends EventEmitter {
 
       // Clear active sessions when stopping
       this.activeSessions.clear();
+      this.pendingConfidence.clear();
+      this.serviceContext.clear();
 
       if (this.options.debug) {
         console.log('[MeetingDetector] Stopped monitoring');
@@ -155,18 +190,21 @@ export class MeetingDetector extends EventEmitter {
   private shouldIgnoreSignal(signal: MeetingSignal): boolean {
     // System processes that should never trigger meeting detection
     const systemProcessPatterns = [
-      'sirinc',           // SiriNCService
-      'afplay',           // macOS audio file player
+      'sirinc',            // SiriNCService
+      'afplay',            // macOS audio file player
       'systemsoundserver', // System sound effects
-      'wavelink',         // Audio routing software
-      'granola helper',   // Screen recording helper
-      'webkit.gpu',       // WebKit GPU process
+      'wavelink',          // Audio routing software
+      'granola helper',    // Screen recording helper
+      'webkit.gpu',        // WebKit GPU process
       'webkit.networking', // WebKit networking
-      'chrome helper',    // Chrome helper processes (too generic)
-      'electron helper',  // Electron helper processes
+      // NOTE: 'chrome helper' intentionally NOT listed — Chrome Helper is the process
+      // used by Google Meet, Zoom web, and other browser-based meeting platforms.
+      'electron helper',   // Electron helper processes (not meeting-specific)
+      'caphost',           // Zoom internal media helper (emitted separately)
+      'webview helper',    // Generic WKWebView helper
     ];
 
-    // Services/apps that are too generic or development-related
+    // Services/apps that are too generic or non-meeting
     const genericServices = [
       'electron',
       'terminal',
@@ -174,16 +212,19 @@ export class MeetingDetector extends EventEmitter {
       'finder',
       'xcode',
       'tips',
-      'google chrome',   // Generic Chrome service (not a specific meeting)
-      'safari',          // Generic Safari service
-      'firefox',         // Generic Firefox service
-      'microsoft edge',  // Generic Edge service
+      'google chrome',    // Generic Chrome (resolved to 'Google Meet' when in a call)
+      'safari',
+      'firefox',
+      'microsoft edge',
+      'photo booth',
+      'quicktime player',
+      'quicktime playerx',
     ];
 
     const processName = signal.process?.toLowerCase() || '';
     const serviceName = signal.service?.toLowerCase() || '';
 
-    // Filter by process name patterns (partial match for flexibility)
+    // Filter by process name patterns (partial match)
     if (systemProcessPatterns.some(pattern => processName.includes(pattern))) {
       return true;
     }
@@ -193,44 +234,174 @@ export class MeetingDetector extends EventEmitter {
       return true;
     }
 
-    // Camera initialization filter: if verdict is 'requested' and window_title is empty,
-    // it's likely just camera initialization, not an actual meeting
-    // This applies to ALL apps to prevent false positives during camera setup
+    // Camera initialization filter: if verdict is 'requested' and window_title is empty
+    // AND the camera hardware is not yet active, it's a pre-check, not an active call.
     if (signal.verdict === 'requested' && (!signal.window_title || signal.window_title.trim() === '')) {
-      // Exception: if camera is actively being used (not just requested), allow it through
-      // This helps distinguish between "requesting permission" vs "actively in a call"
       if (!signal.camera_active) {
         return true;
       }
     }
 
-    // For Google Meet specifically: require window title to contain meeting URL patterns
-    // This prevents false positives from just opening Chrome with camera permissions
+    // For Google Meet (Chrome-based): validate title only when it is available.
+    // When Chrome is backgrounded the title is empty — still allow the signal through
+    // because the meeting is genuinely active (camera_active guard above already handles
+    // the pre-check case).
     if (serviceName === 'google meet') {
-      const windowTitle = signal.window_title || '';
-
-      // Valid Google Meet windows should contain:
-      // - meet.google.com URL
-      // - "Meet - " prefix in title
-      // - Valid meeting code pattern (e.g., abc-defg-hij)
-      const hasValidMeetTitle =
-        windowTitle.includes('meet.google.com') ||
-        windowTitle.includes('Meet - ') ||
-        /[a-z]{3}-[a-z]{4}-[a-z]{3}/.test(windowTitle); // Meeting code pattern
-
-      if (!hasValidMeetTitle) {
-        return true;
+      const windowTitle = signal.window_title?.trim() || '';
+      if (windowTitle !== '') {
+        // Title present → require it to look like an actual meeting room
+        const hasValidMeetTitle =
+          windowTitle.includes('meet.google.com') ||
+          windowTitle.includes('Meet - ') ||
+          /[a-z]{3}-[a-z]{4}-[a-z]{3}/.test(windowTitle);
+        if (!hasValidMeetTitle) {
+          return true;
+        }
       }
+      // Empty title → pass through (Chrome is backgrounded but meeting is active)
     }
 
     return false;
+  }
+
+  private getServiceKey(signal: MeetingSignal): string {
+    return (signal.service || signal.front_app || signal.process || '').toLowerCase();
+  }
+
+  private isFrontAppConsistentWithService(frontApp: string, service: string): boolean {
+    const f = (frontApp || '').toLowerCase();
+    const s = (service || '').toLowerCase();
+    if (!f || !s) return false;
+
+    if (s === 'microsoft teams') {
+      return f.includes('teams') || f.includes('msteams');
+    }
+    if (s === 'google meet') {
+      return f.includes('chrome') || f.includes('google meet');
+    }
+    if (s === 'zoom') {
+      return f.includes('zoom');
+    }
+    if (s === 'webex') {
+      return f.includes('webex');
+    }
+    if (s === 'slack') {
+      return f.includes('slack');
+    }
+    return f.includes(s);
+  }
+
+  private stabilizeSignalContext(signal: MeetingSignal): MeetingSignal {
+    const key = this.getServiceKey(signal);
+    const existing = this.serviceContext.get(key) || {};
+    const next: MeetingSignal = { ...signal };
+
+    const rawFront = (signal.front_app || '').trim();
+    const rawTitle = (signal.window_title || '').trim();
+    const frontConsistent = this.isFrontAppConsistentWithService(rawFront, signal.service);
+
+    if (rawFront && frontConsistent) {
+      next.front_app = rawFront;
+      existing.frontApp = rawFront;
+    } else if (existing.frontApp) {
+      next.front_app = existing.frontApp;
+    } else {
+      // Keep context aligned with detected service when OS foreground sampling is stale.
+      next.front_app = signal.service;
+      existing.frontApp = signal.service;
+    }
+
+    if (rawTitle && frontConsistent) {
+      next.window_title = rawTitle;
+      existing.windowTitle = rawTitle;
+    } else if (existing.windowTitle && this.isFrontAppConsistentWithService(next.front_app, signal.service)) {
+      next.window_title = existing.windowTitle;
+    } else {
+      next.window_title = '';
+    }
+
+    this.serviceContext.set(key, existing);
+    return next;
+  }
+
+  private isLowConfidenceSignal(signal: MeetingSignal): boolean {
+    const serviceKey = this.getServiceKey(signal);
+    if (!MeetingDetector.PRECHECK_PRONE_SERVICES.has(serviceKey)) {
+      return false;
+    }
+
+    const hasNoWindowTitle = !signal.window_title || signal.window_title.trim() === '';
+    return signal.verdict === 'requested' && signal.preflight === true && hasNoWindowTitle;
+  }
+
+  private hasStrongMeetingEvidence(signal: MeetingSignal): boolean {
+    if (signal.verdict === 'allowed' || signal.preflight === false) {
+      return true;
+    }
+    return !!signal.window_title && signal.window_title.trim() !== '';
+  }
+
+  private cleanupExpiredPendingConfidence(now: number): void {
+    for (const [key, pending] of this.pendingConfidence.entries()) {
+      if (now - pending.lastSeen > MeetingDetector.LOW_CONFIDENCE_WINDOW_MS) {
+        this.pendingConfidence.delete(key);
+      }
+    }
+  }
+
+  private resolveConfidence(signal: MeetingSignal): MeetingSignal | null {
+    const now = Date.now();
+    this.cleanupExpiredPendingConfidence(now);
+
+    const key = this.getServiceKey(signal);
+    const pending = this.pendingConfidence.get(key);
+    const lowConfidence = this.isLowConfidenceSignal(signal);
+    const strongEvidence = this.hasStrongMeetingEvidence(signal);
+
+    if (strongEvidence) {
+      this.pendingConfidence.delete(key);
+      return signal;
+    }
+
+    if (!lowConfidence) {
+      return signal;
+    }
+
+    if (!pending) {
+      this.pendingConfidence.set(key, {
+        firstSeen: now,
+        lastSeen: now,
+        count: 1,
+        signal
+      });
+      return null;
+    }
+
+    pending.lastSeen = now;
+    pending.count += 1;
+    pending.signal = signal;
+
+    const duration = now - pending.firstSeen;
+    if (
+      pending.count >= MeetingDetector.LOW_CONFIDENCE_FALLBACK_MIN_SIGNALS &&
+      duration >= MeetingDetector.LOW_CONFIDENCE_FALLBACK_MIN_DURATION_MS
+    ) {
+      this.pendingConfidence.delete(key);
+      if (this.options.debug) {
+        console.log('[MeetingDetector] Promoting low-confidence signal after sustained activity:', signal);
+      }
+      return signal;
+    }
+
+    return null;
   }
 
   /**
    * Generate a unique session key based on the signal properties
    */
   private getSessionKey(signal: MeetingSignal): string {
-    return `${signal.pid}:${signal.service}:${signal.front_app}`;
+    // Session key is service-centric to collapse helper-process bursts from the same app.
+    return signal.service || signal.front_app || signal.process;
   }
 
   /**
@@ -287,19 +458,21 @@ export class MeetingDetector extends EventEmitter {
 
   private parseSignal(line: string): MeetingSignal {
     const signal = JSON.parse(line) as Record<string, any>;
-    
+    const chromeUrl = signal.chrome_url || '';
+
     // Use transformed app name as service if the original service is a system service like 'microphone' or 'camera'
     const originalService = signal.service || '';
-    const transformedService = this.transformAppName(signal.front_app, signal.process);
-    const finalService = (originalService === 'microphone' || originalService === 'camera' || !originalService) 
-      ? transformedService 
+    const transformedService = this.transformAppName(signal.front_app, signal.process, chromeUrl);
+    const finalService = (originalService === 'microphone' || originalService === 'camera' || !originalService)
+      ? transformedService
       : originalService;
-    
+
     return {
       event: signal.event,
       timestamp: signal.timestamp,
       service: finalService,
       verdict: signal.verdict || '',
+      preflight: signal.preflight === 'true' || signal.preflight === true,
       process: signal.process || '',
       pid: signal.pid || '',
       parent_pid: signal.parent_pid || '',
@@ -307,62 +480,88 @@ export class MeetingDetector extends EventEmitter {
       front_app: signal.front_app || '',
       window_title: signal.window_title || '',
       session_id: signal.session_id || '',
-      camera_active: signal.camera_active === 'true' || signal.camera_active === true
+      camera_active: signal.camera_active === 'true' || signal.camera_active === true,
+      chrome_url: chromeUrl
     };
   }
 
-  private transformAppName(frontApp: string, process: string): string {
+  private includesAny(value: string, patterns: string[]): boolean {
+    return patterns.some((pattern) => value.includes(pattern));
+  }
+
+  private transformAppName(frontApp: string, process: string, chromeUrl = ''): string {
     const app = frontApp?.toLowerCase() || '';
     const proc = process?.toLowerCase() || '';
-    
-    if (app.includes('slack') || proc.includes('slack')) {
-      return 'Slack';
-    } else if (app.includes('msteams') || proc.includes('microsoft teams') || proc.includes('teams')) {
-      return 'Microsoft Teams';
-    } else if (app.includes('zoom') || proc.includes('zoom')) {
-      return 'Zoom';
-    } else if (app.includes('webex') || proc.includes('webex') || proc.includes('cisco webex')) {
-      return 'Webex';
-    } else if (app.includes('google meet') || proc.includes('google meet') || proc.includes('meet.google.com') || (app.includes('chrome') && proc.includes('chrome'))) {
-      return 'Google Meet';
-    } else if (app.includes('skype') || proc.includes('skype')) {
-      return 'Skype';
-    } else if (app.includes('discord') || proc.includes('discord')) {
-      return 'Discord';
-    } else if (app.includes('facetime') || proc.includes('facetime')) {
-      return 'FaceTime';
-    } else if (app.includes('gotomeeting') || proc.includes('gotomeeting') || proc.includes('goto meeting')) {
-      return 'GoToMeeting';
-    } else if (app.includes('bluejeans') || proc.includes('bluejeans') || proc.includes('blue jeans')) {
-      return 'BlueJeans';
-    } else if (app.includes('jitsi') || proc.includes('jitsi')) {
-      return 'Jitsi Meet';
-    } else if (app.includes('whereby') || proc.includes('whereby')) {
-      return 'Whereby';
-    } else if (app.includes('8x8') || proc.includes('8x8')) {
-      return '8x8';
-    } else if (app.includes('ringcentral') || proc.includes('ringcentral') || proc.includes('ring central')) {
-      return 'RingCentral';
-    } else if (app.includes('bigbluebutton') || proc.includes('bigbluebutton') || proc.includes('big blue button')) {
-      return 'BigBlueButton';
-    } else if (app.includes('chime') || proc.includes('chime') || proc.includes('amazon chime')) {
-      return 'Amazon Chime';
-    } else if (app.includes('hangouts') || proc.includes('hangouts') || proc.includes('google hangouts')) {
-      return 'Google Hangouts';
-    } else if (app.includes('adobe connect') || proc.includes('adobe connect')) {
-      return 'Adobe Connect';
-    } else if (app.includes('teamviewer') || proc.includes('teamviewer')) {
-      return 'TeamViewer';
-    } else if (app.includes('anydesk') || proc.includes('anydesk')) {
-      return 'AnyDesk';
-    } else if (app.includes('clickmeeting') || proc.includes('clickmeeting')) {
-      return 'ClickMeeting';
-    } else if (app.includes('appear.in') || proc.includes('appear.in')) {
-      return 'Appear.in';
-    } else {
-      // Fallback to front_app if no match
-      return frontApp || 'Meeting App';
+    const url = chromeUrl.toLowerCase();
+
+    // For Chrome Helper processes, the active tab URL is the definitive source —
+    // it does not depend on which app is currently frontmost.
+    if (url && proc.includes('chrome')) {
+      if (url.includes('meet.google.com')) return 'Google Meet';
+      if (url.includes('zoom.us/wc/') || url.includes('zoom.us/j/')) return 'Zoom';
+      if (url.includes('teams.microsoft.com') || url.includes('teams.live.com')) return 'Microsoft Teams';
+      if (url.includes('web.webex.com') || url.includes('webex.com/meet')) return 'Webex';
+      if (url.includes('app.slack.com') && url.includes('huddle')) return 'Slack';
+      if (url.includes('meet.jit.si') || url.includes('jitsi')) return 'Jitsi Meet';
+      if (url.includes('whereby.com')) return 'Whereby';
+      if (url.includes('bluejeans.com')) return 'BlueJeans';
+      if (url.includes('ringcentral.com')) return 'RingCentral';
+      if (url.includes('chime.aws')) return 'Amazon Chime';
+      if (url.includes('goto.com') || url.includes('gotomeeting.com')) return 'GoToMeeting';
     }
+
+    // Prefer process identity next because front_app sampling can be stale.
+    if (this.includesAny(proc, ['microsoft teams', 'msteams'])) return 'Microsoft Teams';
+    if (this.includesAny(proc, ['zoom'])) return 'Zoom';
+    if (this.includesAny(proc, ['webex', 'cisco webex'])) return 'Webex';
+    if (this.includesAny(proc, ['slack'])) return 'Slack';
+    if (this.includesAny(proc, ['google meet', 'meet.google.com'])) return 'Google Meet';
+    if (this.includesAny(proc, ['skype'])) return 'Skype';
+    if (this.includesAny(proc, ['discord'])) return 'Discord';
+    if (this.includesAny(proc, ['facetime'])) return 'FaceTime';
+    if (this.includesAny(proc, ['gotomeeting', 'goto meeting'])) return 'GoToMeeting';
+    if (this.includesAny(proc, ['bluejeans', 'blue jeans'])) return 'BlueJeans';
+    if (this.includesAny(proc, ['jitsi'])) return 'Jitsi Meet';
+    if (this.includesAny(proc, ['whereby'])) return 'Whereby';
+    if (this.includesAny(proc, ['8x8'])) return '8x8';
+    if (this.includesAny(proc, ['ringcentral', 'ring central'])) return 'RingCentral';
+    if (this.includesAny(proc, ['bigbluebutton', 'big blue button'])) return 'BigBlueButton';
+    if (this.includesAny(proc, ['amazon chime', 'chime'])) return 'Amazon Chime';
+    if (this.includesAny(proc, ['google hangouts', 'hangouts'])) return 'Google Hangouts';
+    if (this.includesAny(proc, ['adobe connect'])) return 'Adobe Connect';
+    if (this.includesAny(proc, ['teamviewer'])) return 'TeamViewer';
+    if (this.includesAny(proc, ['anydesk'])) return 'AnyDesk';
+    if (this.includesAny(proc, ['clickmeeting'])) return 'ClickMeeting';
+    if (this.includesAny(proc, ['appear.in'])) return 'Appear.in';
+
+    // Fallback to front_app when process identity is generic/indirect (e.g., Chrome Helper
+    // without a chrome_url resolved). front_app is unreliable when Chrome is backgrounded
+    // — only use it when we have no better signal.
+    if (this.includesAny(app, ['microsoft teams', 'msteams'])) return 'Microsoft Teams';
+    if (this.includesAny(app, ['zoom'])) return 'Zoom';
+    if (this.includesAny(app, ['webex'])) return 'Webex';
+    if (this.includesAny(app, ['slack'])) return 'Slack';
+    if (this.includesAny(app, ['google meet'])) return 'Google Meet';
+    if (this.includesAny(app, ['chrome'])) return 'Google Meet';
+    if (this.includesAny(app, ['skype'])) return 'Skype';
+    if (this.includesAny(app, ['discord'])) return 'Discord';
+    if (this.includesAny(app, ['facetime'])) return 'FaceTime';
+    if (this.includesAny(app, ['gotomeeting'])) return 'GoToMeeting';
+    if (this.includesAny(app, ['bluejeans'])) return 'BlueJeans';
+    if (this.includesAny(app, ['jitsi'])) return 'Jitsi Meet';
+    if (this.includesAny(app, ['whereby'])) return 'Whereby';
+    if (this.includesAny(app, ['8x8'])) return '8x8';
+    if (this.includesAny(app, ['ringcentral'])) return 'RingCentral';
+    if (this.includesAny(app, ['chime'])) return 'Amazon Chime';
+    if (this.includesAny(app, ['hangouts'])) return 'Google Hangouts';
+    if (this.includesAny(app, ['adobe connect'])) return 'Adobe Connect';
+    if (this.includesAny(app, ['teamviewer'])) return 'TeamViewer';
+    if (this.includesAny(app, ['anydesk'])) return 'AnyDesk';
+    if (this.includesAny(app, ['clickmeeting'])) return 'ClickMeeting';
+    if (this.includesAny(app, ['appear.in'])) return 'Appear.in';
+
+    // Final fallback.
+    return frontApp || 'Meeting App';
   }
 }
 

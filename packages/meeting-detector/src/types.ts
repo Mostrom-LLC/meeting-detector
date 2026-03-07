@@ -1,8 +1,9 @@
 export interface MeetingSignal {
   event: 'meeting_signal';
   timestamp: string;
-  service: 'microphone' | 'camera' | '';
+  service: string;
   verdict: 'requested' | 'allowed' | 'denied' | '';
+  preflight?: boolean;
   process: string;
   pid: string;
   parent_pid: string;
@@ -11,6 +12,7 @@ export interface MeetingSignal {
   window_title: string;
   session_id: string;
   camera_active: boolean;
+  chrome_url?: string;
 }
 
 export interface ProcessExit {
