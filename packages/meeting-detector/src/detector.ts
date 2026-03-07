@@ -792,9 +792,8 @@ export class MeetingDetector extends EventEmitter {
       if (!this.process) return;
       if (cameraCode !== 0) return; // Camera not active — no meeting in progress.
 
-      // Camera is active. Check ALL candidates in parallel (not short-circuit) so we can
-      // detect ambiguity: if multiple meeting apps are running we cannot infer which is
-      // the active one from process presence alone.
+      // Candidates in priority order. Run ALL checks independently (semicolons, not ||) so
+      // every running app is discovered, then resolve ambiguity via front-app tiebreak.
       const candidates: Array<[string, MeetingPlatform]> = [
         ['Microsoft Teams', 'Microsoft Teams'],
         ['zoom.us', 'Zoom'],
@@ -804,12 +803,14 @@ export class MeetingDetector extends EventEmitter {
         ['FaceTime', 'FaceTime'],
       ];
 
-      // Run each check independently (semicolon-separated, not ||) so every match prints.
-      const checkScript = candidates
+      // Query front app in parallel with process checks so we can resolve ambiguity
+      // without adding extra latency.
+      const procScript = candidates
         .map(([proc, label]) => `pgrep -xq "${proc}" 2>/dev/null && echo "${label}"; true`)
         .join('; ');
+      const fullScript = `(${procScript}); echo "FRONTAPP=$(osascript -e 'tell application "System Events" to name of first application process whose frontmost is true' 2>/dev/null || echo '')"`;
 
-      const procProbe = spawn('sh', ['-c', checkScript]);
+      const procProbe = spawn('sh', ['-c', fullScript]);
       let output = '';
       procProbe.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
       procProbe.on('close', () => {
@@ -817,20 +818,32 @@ export class MeetingDetector extends EventEmitter {
         if (!this.process) return;
 
         const matched = candidates.filter(([, label]) => output.includes(label));
+        if (matched.length === 0) return; // No known meeting process found.
 
-        // P1 guard: only emit when exactly one meeting app is running.
-        // If multiple are present we cannot reliably identify which is active.
-        if (matched.length !== 1) {
+        let selected = matched[0]; // Priority-order fallback (first in candidate list).
+
+        if (matched.length > 1) {
+          // Multiple meeting apps are running. Use the frontmost app to tiebreak:
+          // the focused window is almost always the active meeting.
+          const frontMatch = output.match(/FRONTAPP=(.+)/);
+          const frontApp = (frontMatch?.[1] || '').trim().toLowerCase();
+          const frontCandidate = matched.find(([proc]) =>
+            proc.toLowerCase().includes(frontApp) || frontApp.includes(proc.toLowerCase())
+          );
+          if (frontCandidate) {
+            selected = frontCandidate;
+          }
+          // If frontmost app is not a meeting app (e.g. user is in Zoom but looking at
+          // a browser), fall through to priority-order selection (selected = matched[0]).
           if (this.options.debug) {
             console.log(
-              '[MeetingDetector] Startup probe skipped: ambiguous or no match',
-              matched.map(([, l]) => l)
+              '[MeetingDetector] Startup probe: multiple apps found, front app resolution',
+              { matched: matched.map(([, l]) => l), frontApp, selected: selected[1] }
             );
           }
-          return;
         }
 
-        const [procName, platform] = matched[0];
+        const [procName, platform] = selected;
         const now = new Date().toISOString().slice(0, 19) + 'Z';
         const syntheticSignal: MeetingSignal = {
           event: 'meeting_signal',
