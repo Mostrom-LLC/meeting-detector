@@ -13,11 +13,15 @@
   },
   "files": [
     "dist/**/*",
+    "native/**/*",
     "meeting-detect.sh",
-    "README.md"
+    "README.md",
+    "*.node"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:native && npm run build:ts",
+    "build:ts": "tsc",
+    "build:native": "napi build --cargo-cwd native .",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "watch": "tsc -w",
@@ -45,14 +49,12 @@
     "url": "https://github.com/Mostrom-LLC/meeting-detector/issues"
   },
   "devDependencies": {
+    "@napi-rs/cli": "^2.18.4",
     "@types/node": "^20.0.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
   },
   "dependencies": {},
-  "os": [
-    "darwin"
-  ],
   "engines": {
     "node": ">=14.0.0"
   }
