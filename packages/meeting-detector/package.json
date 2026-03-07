@@ -1,6 +1,6 @@
 {
   "name": "@mostrom/meeting-detector",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Real-time meeting detection for macOS desktop apps",
   "type": "module",
   "main": "dist/index.js",
