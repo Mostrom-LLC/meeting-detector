@@ -82,3 +82,22 @@ The script will:
 3. Build the package
 4. Auto-increment version if needed
 5. Publish to npm as private package
+
+---
+
+# Meeting Detector Robustness Audit - 2026-03-07
+
+## Plan
+- [ ] Create test harness and capture baseline detector output with debug logs
+- [ ] Validate detector signal generation with a known non-meeting mic/camera event
+- [ ] Test Google Meet meeting start path in browser via CMUX and capture timing/log payload
+- [ ] Test Microsoft Teams meeting start path (web/app) via CMUX and capture timing/log payload
+- [ ] Test Zoom meeting start path (web/app) via CMUX and capture timing/log payload
+- [ ] Test Webex meeting start path (web/app) via CMUX and capture timing/log payload
+- [ ] Compare platform behavior and identify false positives, false negatives, and deduplication issues
+- [ ] Implement the minimal high-impact robustness improvements in detector logic
+- [ ] Re-run targeted verification tests to confirm improvements
+- [ ] Document review results and prioritized follow-up improvements
+
+## Review
+- [ ] Pending
