@@ -3,7 +3,7 @@
 //! Each platform provides a `PlatformDetector` implementation that knows how to
 //! detect meeting activity on that OS.
 
-use crate::error::DetectorResult;
+use crate::error::{DetectorError, DetectorResult};
 use crate::types::MeetingSignal;
 use std::time::Duration;
 

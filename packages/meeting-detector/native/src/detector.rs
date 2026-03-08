@@ -45,8 +45,8 @@ struct ActiveMeetingState {
 #[derive(Debug, Clone)]
 pub struct DetectorConfig {
     pub debug: bool,
-    pub session_deduplication_ms: u64,
-    pub meeting_end_timeout_ms: u64,
+    pub session_deduplication_ms: i64,
+    pub meeting_end_timeout_ms: i64,
     pub emit_unknown: bool,
     pub include_sensitive_metadata: bool,
     pub include_raw_signal_in_lifecycle: bool,
@@ -57,8 +57,8 @@ impl Default for DetectorConfig {
     fn default() -> Self {
         Self {
             debug: false,
-            session_deduplication_ms: 60000,
-            meeting_end_timeout_ms: 30000,
+            session_deduplication_ms: 60000i64,
+            meeting_end_timeout_ms: 30000i64,
             emit_unknown: false,
             include_sensitive_metadata: false,
             include_raw_signal_in_lifecycle: false,
@@ -71,8 +71,8 @@ impl From<DetectorOptions> for DetectorConfig {
     fn from(opts: DetectorOptions) -> Self {
         Self {
             debug: opts.debug.unwrap_or(false),
-            session_deduplication_ms: opts.session_deduplication_ms.unwrap_or(60000),
-            meeting_end_timeout_ms: opts.meeting_end_timeout_ms.unwrap_or(30000),
+            session_deduplication_ms: opts.session_deduplication_ms.unwrap_or(60000i64),
+            meeting_end_timeout_ms: opts.meeting_end_timeout_ms.unwrap_or(30000i64),
             emit_unknown: opts.emit_unknown.unwrap_or(false),
             include_sensitive_metadata: opts.include_sensitive_metadata.unwrap_or(false),
             include_raw_signal_in_lifecycle: opts.include_raw_signal_in_lifecycle.unwrap_or(false),
@@ -366,7 +366,7 @@ impl DetectorStateMachine {
                 }
                 // Schedule meeting end timeout
                 self.meeting_end_scheduled = Some(
-                    now + Duration::from_millis(self.config.meeting_end_timeout_ms)
+                    now + Duration::from_millis(self.config.meeting_end_timeout_ms as u64)
                 );
                 None
             }
@@ -376,7 +376,7 @@ impl DetectorStateMachine {
     /// Clean up old sessions.
     pub fn cleanup_sessions(&mut self) {
         let now = Instant::now();
-        let timeout = Duration::from_millis(self.config.session_deduplication_ms);
+        let timeout = Duration::from_millis(self.config.session_deduplication_ms as u64);
         
         self.active_sessions.retain(|_, session| {
             now.duration_since(session.last_seen) < timeout

@@ -1,6 +1,5 @@
 //! Error types for meeting-detector.
 
-use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use thiserror::Error;
 
@@ -57,7 +56,7 @@ impl From<DetectorError> for napi::Error {
     }
 }
 
-/// Result type for detector operations.
+/// Result type for detector operations (internal use).
 pub type DetectorResult<T> = Result<T, DetectorError>;
 
 /// Error info exposed to JavaScript.

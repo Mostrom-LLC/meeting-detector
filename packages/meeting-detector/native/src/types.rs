@@ -10,7 +10,7 @@ use std::fmt;
 ///
 /// Matches the TypeScript `MeetingPlatform` type.
 #[napi(string_enum)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MeetingPlatform {
     MicrosoftTeams,
     Zoom,
@@ -104,7 +104,7 @@ impl MeetingPlatform {
 
 /// Confidence level for meeting detection.
 #[napi(string_enum)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Confidence {
     High,
     Medium,
@@ -123,7 +123,7 @@ impl fmt::Display for Confidence {
 
 /// Verdict from TCC/permission system.
 #[napi(string_enum)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Verdict {
     Requested,
     Allowed,
@@ -187,7 +187,7 @@ impl Default for MeetingSignal {
 
 /// Lifecycle event reason.
 #[napi(string_enum)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LifecycleReason {
     Signal,
     Switch,
@@ -275,11 +275,11 @@ pub struct DetectorOptions {
 
     /// Session deduplication window in milliseconds (default: 60000)
     #[napi(ts_type = "number | undefined")]
-    pub session_deduplication_ms: Option<u64>,
+    pub session_deduplication_ms: Option<i64>,
 
     /// Time without signals before inferring meeting end (default: 30000)
     #[napi(ts_type = "number | undefined")]
-    pub meeting_end_timeout_ms: Option<u64>,
+    pub meeting_end_timeout_ms: Option<i64>,
 
     /// Emit "Unknown" platform lifecycle events (default: false)
     #[napi(ts_type = "boolean | undefined")]
@@ -302,8 +302,8 @@ impl Default for DetectorOptions {
     fn default() -> Self {
         Self {
             debug: Some(false),
-            session_deduplication_ms: Some(60000),
-            meeting_end_timeout_ms: Some(30000),
+            session_deduplication_ms: Some(60000i64),
+            meeting_end_timeout_ms: Some(30000i64),
             emit_unknown: Some(false),
             include_sensitive_metadata: Some(false),
             include_raw_signal_in_lifecycle: Some(false),
