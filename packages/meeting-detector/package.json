@@ -1,7 +1,7 @@
 {
   "name": "@mostrom/meeting-detector",
   "version": "1.0.5",
-  "description": "Real-time meeting detection for macOS desktop apps",
+  "description": "Real-time cross-platform meeting detection for desktop apps",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,11 +14,19 @@
   "files": [
     "dist/**/*",
     "meeting-detect.sh",
+    "native/*.node",
+    "native/index.js",
+    "native/index.d.ts",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "test": "npm run build && node --test test/**/*.test.mjs",
+    "build": "npm run build:ts",
+    "build:ts": "tsc",
+    "build:native": "cd native && npm run build",
+    "build:native:debug": "cd native && npm run build:debug",
+    "build:all": "npm run build:native && npm run build:ts",
+    "test": "npm run build:ts && node --test test/**/*.test.mjs",
+    "test:native": "cd native && cargo test",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "watch": "tsc -w",
@@ -29,8 +37,12 @@
     "meeting",
     "detection",
     "macos",
-    "tcc",
-    "privacy"
+    "windows",
+    "linux",
+    "cross-platform",
+    "zoom",
+    "teams",
+    "meet"
   ],
   "author": "Kaiser White <kaise@mostrom.io>",
   "license": "MIT",
@@ -51,10 +63,13 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {},
+  "optionalDependencies": {},
   "os": [
-    "darwin"
+    "darwin",
+    "win32",
+    "linux"
   ],
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   }
 }
