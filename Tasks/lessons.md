@@ -78,3 +78,35 @@
 - [npm Organizations](https://docs.npmjs.com/organizations)
 - [Semantic Versioning](https://semver.org/)
 - [GitHub Actions - Publishing Node.js packages](https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages)
+
+## 2026-03-07: Meeting Detector Platform Audit
+
+### User Correction Pattern
+
+1. **When the user points to a specific tool API path, validate usage against docs immediately**
+   - Correction received: use CMUX browser APIs directly from CLI docs
+   - Prevention rule: if user gives a tool doc URL, inspect it right away and realign test strategy before continuing assumptions
+
+2. **Differentiate tool capability from environment capability early**
+   - CMUX browser APIs worked, but browser panels are embedded web views and did not produce expected media entitlement behavior in this environment
+   - Prevention rule: after confirming command syntax, run a fast capability probe (mic/camera event sanity check) before full scenario automation
+
+3. **Credential helper scripts may use different env var names than project `.env`**
+   - OTP scripts expected `GOOGLE_EMAIL`/`GOOGLE_APP_PASSWORD`, while project had `GMAIL_EMAIL`/`GMAIL_APP_PASSWORD`
+   - Prevention rule: check script env var contract first and map variables explicitly in command invocation
+
+## 2026-03-07: Verification Discipline Reinforcement
+
+1. **Do not close robustness work without baseline-vs-change proof**
+   - Correction pattern: user required explicit verification gates before marking complete.
+   - Prevention rule: for behavior changes, run side-by-side `HEAD` vs working-tree scenarios and capture concrete event/log deltas.
+
+2. **Use logs as acceptance evidence, not just assertions**
+   - Correction pattern: synthetic test pass/fail alone was insufficient.
+   - Prevention rule: include debug-log evidence showing the decision path (for example, `Parsed signal` vs `Holding low-confidence signal`) for at least one key scenario.
+
+## 2026-03-07: Autonomous Bug-Fix Execution
+
+1. **Bug reports should trigger direct fix execution, not guidance requests**
+   - Correction pattern: user requested no hand-holding during bug reports.
+   - Prevention rule: when a concrete bug is reported, immediately reproduce, patch, verify, and report results with evidence unless a true external blocker exists.
