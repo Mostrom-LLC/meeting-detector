@@ -6,6 +6,28 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Meeting detection state.
+///
+/// Represents whether a meeting is currently active.
+#[napi(string_enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MeetingState {
+    /// No meeting detected
+    #[default]
+    None,
+    /// Meeting is active/detected
+    Detected,
+}
+
+impl fmt::Display for MeetingState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MeetingState::None => write!(f, "none"),
+            MeetingState::Detected => write!(f, "detected"),
+        }
+    }
+}
+
 /// Supported meeting platforms.
 ///
 /// Matches the TypeScript `MeetingPlatform` type.
@@ -315,6 +337,13 @@ impl Default for DetectorOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_meeting_state() {
+        assert_eq!(MeetingState::default(), MeetingState::None);
+        assert_eq!(MeetingState::None.to_string(), "none");
+        assert_eq!(MeetingState::Detected.to_string(), "detected");
+    }
 
     #[test]
     fn test_platform_display() {
