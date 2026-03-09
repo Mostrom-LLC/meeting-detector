@@ -45,22 +45,205 @@ impl LinuxDetector {
             return None;
         }
 
-        // TODO: Implement using x11rb
-        // Returns (window_title, wm_class, pid)
-        None
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::*;
+        use x11rb::wrapper::ConnectionExt as _;
+
+        // Connect to X11 server
+        let (conn, screen_num) = match x11rb::connect(None) {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+
+        let screen = &conn.setup().roots[screen_num];
+        let root = screen.root;
+
+        // Get active window atom
+        let net_active_window = conn
+            .intern_atom(false, b"_NET_ACTIVE_WINDOW")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+
+        // Get active window
+        let reply = conn
+            .get_property(false, root, net_active_window, AtomEnum::WINDOW, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?;
+
+        if reply.value.len() < 4 {
+            return None;
+        }
+
+        let window = u32::from_ne_bytes([
+            reply.value[0],
+            reply.value[1],
+            reply.value[2],
+            reply.value[3],
+        ]);
+
+        if window == 0 {
+            return None;
+        }
+
+        // Get window title
+        let net_wm_name = conn
+            .intern_atom(false, b"_NET_WM_NAME")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+        let utf8_string = conn
+            .intern_atom(false, b"UTF8_STRING")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+
+        let title_reply = conn
+            .get_property(false, window, net_wm_name, utf8_string, 0, 1024)
+            .ok()?
+            .reply()
+            .ok()?;
+
+        let title = String::from_utf8_lossy(&title_reply.value).to_string();
+
+        // Get WM_CLASS
+        let wm_class_reply = conn
+            .get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 1024)
+            .ok()?
+            .reply()
+            .ok()?;
+
+        let wm_class = String::from_utf8_lossy(&wm_class_reply.value)
+            .split('\0')
+            .last()
+            .unwrap_or("")
+            .to_string();
+
+        // Get PID
+        let net_wm_pid = conn
+            .intern_atom(false, b"_NET_WM_PID")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+
+        let pid_reply = conn
+            .get_property(false, window, net_wm_pid, AtomEnum::CARDINAL, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?;
+
+        let pid = if pid_reply.value.len() >= 4 {
+            u32::from_ne_bytes([
+                pid_reply.value[0],
+                pid_reply.value[1],
+                pid_reply.value[2],
+                pid_reply.value[3],
+            ])
+        } else {
+            0
+        };
+
+        Some((title, wm_class, pid))
     }
 
-    /// Get processes using audio capture via PulseAudio.
+    /// Get processes using audio capture via procfs.
+    /// 
+    /// Checks for processes that have /dev/snd/* open (ALSA) or
+    /// PipeWire/PulseAudio connections with recording.
     fn get_audio_capture_processes(&self) -> Vec<(u32, String)> {
-        // TODO: Implement using libpulse-binding
-        // Returns list of (pid, app_name) with active recording streams
-        Vec::new()
+        use std::fs;
+        
+        let mut result = Vec::new();
+        
+        // Look for processes with /dev/snd/* open
+        if let Ok(proc_entries) = fs::read_dir("/proc") {
+            for entry in proc_entries.flatten() {
+                let pid_str = entry.file_name();
+                let pid_str = pid_str.to_string_lossy();
+                
+                // Skip non-numeric directories
+                let pid: u32 = match pid_str.parse() {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                
+                let fd_dir = entry.path().join("fd");
+                if let Ok(fds) = fs::read_dir(&fd_dir) {
+                    for fd in fds.flatten() {
+                        if let Ok(link) = fs::read_link(fd.path()) {
+                            let link_str = link.to_string_lossy();
+                            
+                            // Check for sound device access
+                            if link_str.contains("/dev/snd/") 
+                                && (link_str.contains("pcmC") && link_str.contains("c"))
+                            {
+                                // This is a capture device (c = capture, p = playback)
+                                if let Some(name) = self.get_process_name(pid) {
+                                    result.push((pid, name));
+                                    break; // Only add each process once
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        result
     }
 
     /// Check if camera is in use.
     fn is_camera_in_use(&self) -> bool {
-        // Check /dev/video* device usage or v4l2 API
-        // TODO: Implement
+        use std::fs;
+        use std::path::Path;
+
+        // Check if any /dev/video* device is being used
+        for entry in fs::read_dir("/dev").into_iter().flatten() {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                
+                if name.starts_with("video") {
+                    // Check if device is open by any process
+                    let fd_path = format!("/proc/self/fd");
+                    if let Ok(fds) = fs::read_dir(&fd_path) {
+                        for fd in fds.flatten() {
+                            if let Ok(link) = fs::read_link(fd.path()) {
+                                if link == path {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Also check via /sys/class/video4linux
+                    let v4l_path = format!("/sys/class/video4linux/{}/device/uevent", name);
+                    if Path::new(&v4l_path).exists() {
+                        // Check if device is in use by looking at open file descriptors
+                        if let Ok(entries) = fs::read_dir("/proc") {
+                            for proc_entry in entries.flatten() {
+                                let fd_dir = proc_entry.path().join("fd");
+                                if let Ok(fds) = fs::read_dir(&fd_dir) {
+                                    for fd in fds.flatten() {
+                                        if let Ok(link) = fs::read_link(fd.path()) {
+                                            if link.to_string_lossy().contains(name) {
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         false
     }
 
