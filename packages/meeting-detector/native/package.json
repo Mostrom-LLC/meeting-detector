@@ -1,0 +1,40 @@
+{
+  "name": "@mostrom/meeting-detector-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native Rust core for meeting-detector",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "meeting-detector-native",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin"
+      ]
+    }
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "cargo test",
+    "universal": "napi universal -t darwin"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
+  "engines": {
+    "node": ">= 18"
+  },
+  "os": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
