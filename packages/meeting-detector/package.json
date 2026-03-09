@@ -21,7 +21,7 @@
   "scripts": {
     "build": "npm run build:native && npm run build:ts",
     "build:ts": "tsc",
-    "build:native": "napi build --cwd native --package-json-path ../package.json --output-dir ..",
+    "build:native": "napi build --cargo-cwd native --platform",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "watch": "tsc -w",
