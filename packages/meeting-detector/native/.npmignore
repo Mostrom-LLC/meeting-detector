@@ -1,0 +1,9 @@
+# Ignore source files, only publish prebuilt binaries
+src/
+target/
+.cargo/
+Cargo.toml
+Cargo.lock
+build.rs
+IMPLEMENTATION_SPEC.md
+*.rs

@@ -1,0 +1,61 @@
+[package]
+name = "meeting-detector-native"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mostrom LLC <engineering@mostrom.io>"]
+description = "Native Rust core for meeting-detector"
+license = "MIT"
+repository = "https://github.com/Mostrom-LLC/meeting-detector"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", default-features = false, features = ["async", "napi8", "serde-json"] }
+napi-derive = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+
+# macOS-specific dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+core-foundation-sys = "0.8"
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSRunLoop", "NSString", "NSArray", "NSDictionary"] }
+objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSRunningApplication", "NSApplication"] }
+
+# Windows-specific dependencies
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_UI_Accessibility",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+]}
+
+# Linux-specific dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+libpulse-binding = "2.28"
+x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
+
+[build-dependencies]
+napi-build = "2"
+
+[dev-dependencies]
+rand = "0.8"
+
+[profile.release]
+lto = true
+opt-level = 3
+strip = "symbols"
+
+[profile.dev]
+opt-level = 0
+debug = true

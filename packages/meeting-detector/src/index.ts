@@ -13,6 +13,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log('📱 Meeting signal:', stateChange);
   }, { debug: true });
 
+  meetingDetector.onMeetingStarted((event) => {
+    console.log('✅ Meeting started:', event);
+  });
+  meetingDetector.onMeetingChanged((event) => {
+    console.log('🔄 Meeting changed:', event);
+  });
+  meetingDetector.onMeetingEnded((event) => {
+    console.log('⏹️ Meeting ended:', event);
+  });
+
   // Graceful shutdown
   process.on('SIGINT', () => {
     console.log('\n⏹️  Stopping meeting detector...');
