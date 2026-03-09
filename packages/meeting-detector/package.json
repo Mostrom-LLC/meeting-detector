@@ -21,7 +21,7 @@
   "scripts": {
     "build": "npm run build:native && npm run build:ts",
     "build:ts": "tsc",
-    "build:native": "napi build --cargo-cwd native .",
+    "build:native": "napi build --cwd native --package-json-path ../package.json --output-dir ..",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "watch": "tsc -w",
@@ -54,7 +54,6 @@
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
   },
-  "dependencies": {},
   "engines": {
     "node": ">=14.0.0"
   }
