@@ -1,13 +1,14 @@
-//! Windows platform detection using WASAPI, UI Automation, and WMI.
+//! Windows platform detection using PowerShell commands and registry queries.
 //!
 //! Detection methods:
-//! - WASAPI for audio device consumers
-//! - UI Automation for window inspection
-//! - WMI for process enumeration
+//! - Registry queries for camera/mic access
+//! - PowerShell for active window info
+//! - Process enumeration for meeting apps
 
 use crate::error::{DetectorError, DetectorResult};
 use crate::types::MeetingSignal;
 use crate::platform::PlatformDetector;
+use std::process::Command;
 use std::time::Duration;
 
 /// Windows meeting detector implementation.
@@ -29,29 +30,121 @@ impl WindowsDetector {
         self
     }
 
-    /// Get the foreground window and its owning process.
+    /// Get the foreground window title and process using PowerShell.
     fn get_foreground_window_info(&self) -> Option<(String, String, u32)> {
-        // TODO: Implement using UI Automation
-        // Returns (window_title, process_name, pid)
+        // PowerShell command to get foreground window info
+        let script = r#"
+            Add-Type @"
+            using System;
+            using System.Runtime.InteropServices;
+            using System.Text;
+            public class Win32 {
+                [DllImport("user32.dll")]
+                public static extern IntPtr GetForegroundWindow();
+                [DllImport("user32.dll")]
+                public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+                [DllImport("user32.dll", SetLastError=true)]
+                public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+            }
+"@
+            $hwnd = [Win32]::GetForegroundWindow()
+            $sb = New-Object System.Text.StringBuilder 256
+            [void][Win32]::GetWindowText($hwnd, $sb, 256)
+            $pid = 0
+            [void][Win32]::GetWindowThreadProcessId($hwnd, [ref]$pid)
+            $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            "$($sb.ToString())|$($proc.ProcessName)|$pid"
+        "#;
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let parts: Vec<&str> = result.split('|').collect();
+            if parts.len() >= 3 {
+                let title = parts[0].to_string();
+                let process = parts[1].to_string();
+                let pid: u32 = parts[2].parse().unwrap_or(0);
+                return Some((title, process, pid));
+            }
+        }
         None
     }
 
-    /// Check if audio capture is active for any process.
-    fn is_audio_capture_active(&self) -> Vec<u32> {
-        // TODO: Implement using WASAPI IAudioSessionManager2
-        // Returns list of PIDs with active audio sessions
-        Vec::new()
+    /// Check if camera is in use by querying the registry.
+    fn is_camera_in_use(&self) -> bool {
+        // Check registry for camera usage
+        // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam
+        let script = r#"
+            $inUse = $false
+            $camPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam"
+            if (Test-Path $camPath) {
+                Get-ChildItem $camPath -ErrorAction SilentlyContinue | ForEach-Object {
+                    $lastUsed = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).LastUsedTimeStop
+                    if ($lastUsed -eq 0) { $inUse = $true }
+                }
+            }
+            if ($inUse) { "true" } else { "false" }
+        "#;
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .output();
+
+        output
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "true")
+            .unwrap_or(false)
     }
 
-    /// Check if camera is in use by any process.
-    fn is_camera_in_use(&self) -> Vec<u32> {
-        // TODO: Implement using Windows camera access APIs
-        Vec::new()
+    /// Check if microphone is in use by querying the registry.
+    fn is_mic_in_use(&self) -> bool {
+        let script = r#"
+            $inUse = $false
+            $micPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"
+            if (Test-Path $micPath) {
+                Get-ChildItem $micPath -ErrorAction SilentlyContinue | ForEach-Object {
+                    $lastUsed = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).LastUsedTimeStop
+                    if ($lastUsed -eq 0) { $inUse = $true }
+                }
+            }
+            if ($inUse) { "true" } else { "false" }
+        "#;
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .output();
+
+        output
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "true")
+            .unwrap_or(false)
     }
 
-    /// Get process name by PID.
-    fn get_process_name(&self, _pid: u32) -> Option<String> {
-        // TODO: Implement using Process32First/Process32Next
+    /// Check if any known meeting app is running.
+    fn find_meeting_process(&self) -> Option<(String, u32)> {
+        let apps = [
+            "Teams", "Zoom", "Webex", "Slack", "Discord", "Skype"
+        ];
+        
+        for app in apps {
+            let output = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!("Get-Process -Name '*{}*' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id", app)
+                ])
+                .output()
+                .ok()?;
+
+            if output.status.success() {
+                let pid_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    return Some((app.to_string(), pid));
+                }
+            }
+        }
         None
     }
 }
@@ -59,10 +152,10 @@ impl WindowsDetector {
 impl PlatformDetector for WindowsDetector {
     fn detect(&self) -> DetectorResult<Option<MeetingSignal>> {
         // Check for camera/mic activity
-        let camera_pids = self.is_camera_in_use();
-        let audio_pids = self.is_audio_capture_active();
+        let camera_active = self.is_camera_in_use();
+        let mic_active = self.is_mic_in_use();
 
-        if camera_pids.is_empty() && audio_pids.is_empty() {
+        if !camera_active && !mic_active {
             return Ok(None);
         }
 
@@ -71,23 +164,48 @@ impl PlatformDetector for WindowsDetector {
             .get_foreground_window_info()
             .unwrap_or_default();
 
+        // If foreground window isn't a meeting app, try to find one
+        let (process_name, process_pid) = if let Some((meeting_app, meeting_pid)) = self.find_meeting_process() {
+            (meeting_app, meeting_pid)
+        } else {
+            (front_app.clone(), pid)
+        };
+
+        // Generate session ID
+        let session_id = format!(
+            "{}-{}",
+            process_name.to_lowercase(),
+            chrono::Utc::now().timestamp()
+        );
+
+        // Determine verdict
+        let verdict = if camera_active {
+            "allowed".to_string()
+        } else {
+            "requested".to_string()
+        };
+
         // Create signal
         let signal = MeetingSignal {
             event: "meeting_signal".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
-            service: front_app.clone(),
-            verdict: String::new(),
+            service: process_name.clone(),
+            verdict,
             preflight: false,
-            process: front_app.clone(),
-            pid: pid.to_string(),
+            process: process_name.clone(),
+            pid: process_pid.to_string(),
             parent_pid: String::new(),
             process_path: String::new(),
             front_app,
             window_title,
-            session_id: String::new(),
-            camera_active: !camera_pids.is_empty(),
+            session_id,
+            camera_active,
             chrome_url: None,
         };
+
+        if self.debug {
+            eprintln!("[WindowsDetector] Signal: {:?}", signal);
+        }
 
         Ok(Some(signal))
     }
@@ -97,9 +215,21 @@ impl PlatformDetector for WindowsDetector {
     }
 
     fn check_permissions(&self) -> DetectorResult<()> {
-        // Windows typically doesn't require special permissions
-        // UAC may be needed for some operations
-        Ok(())
+        // Test PowerShell execution
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Write-Output 'ok'"])
+            .output();
+
+        match output {
+            Ok(o) if o.status.success() => Ok(()),
+            Ok(_) => Err(DetectorError::Platform(
+                "PowerShell execution failed".to_string()
+            )),
+            Err(e) => Err(DetectorError::Platform(format!(
+                "PowerShell not available: {}",
+                e
+            ))),
+        }
     }
 
     fn platform_name(&self) -> &'static str {
