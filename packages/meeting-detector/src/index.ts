@@ -1,8 +1,10 @@
 import { detector } from './detector.js';
+import { getNativeScaffoldInfo } from './native.js';
 import type { MeetingSignal } from './types.js';
 
 // Main exports
 export { MeetingDetector, detector } from './detector.js';
+export { getNativeScaffoldInfo } from './native.js';
 export * from './types.js';
 
 // Example usage (only when run directly)

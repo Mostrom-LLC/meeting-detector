@@ -18,6 +18,13 @@ export interface ProcessExit {
   signal: NodeJS.Signals | null;
 }
 
+export interface NativeScaffoldInfo {
+  runtime: 'napi-rs';
+  platform: string;
+  arch: string;
+  status: string;
+}
+
 export interface MeetingDetectorOptions {
   /**
    * Path to the meeting-detect.sh script
