@@ -31,6 +31,7 @@
     "start": "node dist/index.js",
     "watch": "tsc -w",
     "prepublishOnly": "npm run build",
+    "postinstall": "node scripts/postinstall.mjs || exit 0",
     "publish:npm": "bash ./scripts/publish-npm.sh"
   },
   "keywords": [

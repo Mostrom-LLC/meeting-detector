@@ -469,6 +469,13 @@ export class MeetingDetector extends EventEmitter {
   }
 
   /**
+   * Alias for onMeetingEnded - for API compatibility
+   */
+  public onEnded(callback: MeetingLifecycleCallback): void {
+    this.onMeetingEnded(callback);
+  }
+
+  /**
    * Comprehensive filtering to prevent false positives
    * Filters out:
    * - System processes (WebKit, SiriNCService, Chrome Helper, etc.)
