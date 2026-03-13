@@ -118,7 +118,7 @@ impl LinuxDetector {
 
         let wm_class = String::from_utf8_lossy(&wm_class_reply.value)
             .split('\0')
-            .last()
+            .next_back()
             .unwrap_or("")
             .to_string();
 
@@ -202,37 +202,34 @@ impl LinuxDetector {
         use std::path::Path;
 
         // Check if any /dev/video* device is being used
-        for entry in fs::read_dir("/dev").into_iter().flatten() {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        for entry in fs::read_dir("/dev").into_iter().flatten().flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                if name.starts_with("video") {
-                    // Check if device is open by any process
-                    let fd_path = format!("/proc/self/fd");
-                    if let Ok(fds) = fs::read_dir(&fd_path) {
-                        for fd in fds.flatten() {
-                            if let Ok(link) = fs::read_link(fd.path()) {
-                                if link == path {
-                                    return true;
-                                }
+            if name.starts_with("video") {
+                // Check if device is open by any process
+                if let Ok(fds) = fs::read_dir("/proc/self/fd") {
+                    for fd in fds.flatten() {
+                        if let Ok(link) = fs::read_link(fd.path()) {
+                            if link == path {
+                                return true;
                             }
                         }
                     }
+                }
 
-                    // Also check via /sys/class/video4linux
-                    let v4l_path = format!("/sys/class/video4linux/{}/device/uevent", name);
-                    if Path::new(&v4l_path).exists() {
-                        // Check if device is in use by looking at open file descriptors
-                        if let Ok(entries) = fs::read_dir("/proc") {
-                            for proc_entry in entries.flatten() {
-                                let fd_dir = proc_entry.path().join("fd");
-                                if let Ok(fds) = fs::read_dir(&fd_dir) {
-                                    for fd in fds.flatten() {
-                                        if let Ok(link) = fs::read_link(fd.path()) {
-                                            if link.to_string_lossy().contains(name) {
-                                                return true;
-                                            }
+                // Also check via /sys/class/video4linux
+                let v4l_path = format!("/sys/class/video4linux/{}/device/uevent", name);
+                if Path::new(&v4l_path).exists() {
+                    // Check if device is in use by looking at open file descriptors
+                    if let Ok(entries) = fs::read_dir("/proc") {
+                        for proc_entry in entries.flatten() {
+                            let fd_dir = proc_entry.path().join("fd");
+                            if let Ok(fds) = fs::read_dir(&fd_dir) {
+                                for fd in fds.flatten() {
+                                    if let Ok(link) = fs::read_link(fd.path()) {
+                                        if link.to_string_lossy().contains(name) {
+                                            return true;
                                         }
                                     }
                                 }
@@ -254,6 +251,7 @@ impl LinuxDetector {
     }
 
     /// Get process command line by PID.
+    #[allow(dead_code)]
     fn get_process_cmdline(&self, pid: u32) -> Option<String> {
         std::fs::read_to_string(format!("/proc/{}/cmdline", pid))
             .ok()

@@ -99,7 +99,7 @@ impl MatcherRegistry {
         ];
 
         // Sort by priority (highest first)
-        matchers.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        matchers.sort_by_key(|m| std::cmp::Reverse(m.priority()));
 
         Self { matchers }
     }

@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 struct SessionInfo {
     last_seen: Instant,
+    #[allow(dead_code)]
     signal: MeetingSignal,
 }
 

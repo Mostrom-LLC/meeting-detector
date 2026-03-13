@@ -41,6 +41,7 @@ pub use types::*;
 /// Native meeting detector class exposed to JavaScript.
 #[napi]
 pub struct NativeMeetingDetector {
+    #[allow(dead_code)]
     config: detector::DetectorConfig,
     state_machine: Arc<Mutex<detector::DetectorStateMachine>>,
     running: Arc<Mutex<bool>>,
