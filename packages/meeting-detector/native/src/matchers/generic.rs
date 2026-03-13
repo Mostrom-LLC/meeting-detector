@@ -15,7 +15,11 @@ impl GenericMatcher {
     const PATTERNS: &'static [(&'static str, &'static [&'static str], MeetingPlatform)] = &[
         // (process_contains, title_contains, platform)
         ("webex", &["meeting", "call"], MeetingPlatform::CiscoWebex),
-        ("discord", &["voice", "call", "video"], MeetingPlatform::Discord),
+        (
+            "discord",
+            &["voice", "call", "video"],
+            MeetingPlatform::Discord,
+        ),
         ("facetime", &[], MeetingPlatform::FaceTime),
         ("skype", &["call", "meeting"], MeetingPlatform::Skype),
         ("whereby", &[], MeetingPlatform::Whereby),
@@ -91,7 +95,7 @@ impl PlatformMatcher for GenericMatcher {
     }
 
     fn priority(&self) -> u32 {
-        10  // Low priority - fallback after specific matchers
+        10 // Low priority - fallback after specific matchers
     }
 }
 
@@ -102,16 +106,16 @@ mod tests {
     #[test]
     fn test_webex_detection() {
         let matcher = GenericMatcher;
-        
-        let ctx = MatchContext::new("Cisco Webex Meetings", "Team Meeting")
-            .with_camera_active(true);
+
+        let ctx =
+            MatchContext::new("Cisco Webex Meetings", "Team Meeting").with_camera_active(true);
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::CiscoWebex));
     }
 
     #[test]
     fn test_facetime_detection() {
         let matcher = GenericMatcher;
-        
+
         // FaceTime matches on process name alone
         let ctx = MatchContext::new("FaceTime", "");
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::FaceTime));
@@ -120,7 +124,7 @@ mod tests {
     #[test]
     fn test_discord_url() {
         let matcher = GenericMatcher;
-        
+
         let ctx = MatchContext::new("Google Chrome", "Voice Channel")
             .with_url("https://discord.com/channels/123/456");
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::Discord));
@@ -129,7 +133,7 @@ mod tests {
     #[test]
     fn test_jitsi_meet() {
         let matcher = GenericMatcher;
-        
+
         let ctx = MatchContext::new("Firefox", "Team Meeting")
             .with_url("https://meet.jit.si/TeamSync123");
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::JitsiMeet));
@@ -138,7 +142,7 @@ mod tests {
     #[test]
     fn test_unknown_process() {
         let matcher = GenericMatcher;
-        
+
         let ctx = MatchContext::new("SomeUnknownApp", "Random Window");
         assert_eq!(matcher.matches(&ctx), None);
     }

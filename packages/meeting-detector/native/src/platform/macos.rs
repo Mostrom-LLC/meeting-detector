@@ -6,8 +6,8 @@
 //! - TCC/OSLog streaming for real-time mic/camera events
 
 use crate::error::{DetectorError, DetectorResult};
-use crate::types::MeetingSignal;
 use crate::platform::PlatformDetector;
+use crate::types::MeetingSignal;
 use std::process::Command;
 use std::time::Duration;
 
@@ -49,7 +49,9 @@ impl MacOSDetector {
     /// Get the window title of the frontmost application using AppleScript.
     fn get_window_title(&self) -> Option<String> {
         let output = Command::new("osascript")
-            .args(["-e", r#"
+            .args([
+                "-e",
+                r#"
                 tell application "System Events"
                     set frontApp to first application process whose frontmost is true
                     tell frontApp
@@ -59,7 +61,8 @@ impl MacOSDetector {
                     end tell
                 end tell
                 return ""
-            "#])
+            "#,
+            ])
             .output()
             .ok()?;
 
@@ -100,9 +103,12 @@ impl MacOSDetector {
         // Check for processes with microphone access via coreaudiod
         // This is a heuristic - processes with audio input streams
         let output = Command::new("sh")
-            .args(["-c", r#"
+            .args([
+                "-c",
+                r#"
                 ioreg -r -c AppleHDAEngineInput 2>/dev/null | grep -q '"IOAudioEngineState" = 1'
-            "#])
+            "#,
+            ])
             .output();
 
         output.map(|o| o.status.success()).unwrap_or(false)
@@ -111,10 +117,7 @@ impl MacOSDetector {
     /// Get process info for a known meeting app.
     fn get_meeting_process_info(&self, app_name: &str) -> Option<(String, String)> {
         // Try to get PID and path for the app
-        let output = Command::new("pgrep")
-            .args(["-x", app_name])
-            .output()
-            .ok()?;
+        let output = Command::new("pgrep").args(["-x", app_name]).output().ok()?;
 
         if output.status.success() {
             let pid = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -124,8 +127,10 @@ impl MacOSDetector {
                     .args(["-p", first_pid, "-o", "comm="])
                     .output()
                     .ok()?;
-                
-                let path = String::from_utf8_lossy(&path_output.stdout).trim().to_string();
+
+                let path = String::from_utf8_lossy(&path_output.stdout)
+                    .trim()
+                    .to_string();
                 return Some((first_pid.to_string(), path));
             }
         }
@@ -214,7 +219,9 @@ impl PlatformDetector for MacOSDetector {
                     Ok(()) // Other errors might be transient
                 }
             }
-            Err(e) => Err(DetectorError::Internal { message: format!("Failed to check permissions: {}", e) }),
+            Err(e) => Err(DetectorError::Internal {
+                message: format!("Failed to check permissions: {}", e),
+            }),
         }
     }
 

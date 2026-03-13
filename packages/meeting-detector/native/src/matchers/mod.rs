@@ -5,17 +5,17 @@
 
 use crate::types::MeetingPlatform;
 
-mod zoom;
-mod teams;
+mod generic;
 mod meet;
 mod slack;
-mod generic;
+mod teams;
+mod zoom;
 
-pub use zoom::ZoomMatcher;
-pub use teams::TeamsMatcher;
+pub use generic::GenericMatcher;
 pub use meet::GoogleMeetMatcher;
 pub use slack::SlackMatcher;
-pub use generic::GenericMatcher;
+pub use teams::TeamsMatcher;
+pub use zoom::ZoomMatcher;
 
 /// Trait for platform matchers.
 pub trait PlatformMatcher: Send + Sync {
@@ -121,9 +121,8 @@ mod tests {
 
     #[test]
     fn test_match_context() {
-        let ctx = MatchContext::new("zoom", "Zoom Meeting")
-            .with_camera_active(true);
-        
+        let ctx = MatchContext::new("zoom", "Zoom Meeting").with_camera_active(true);
+
         assert_eq!(ctx.process_name, "zoom");
         assert_eq!(ctx.window_title, "Zoom Meeting");
         assert!(ctx.camera_active);

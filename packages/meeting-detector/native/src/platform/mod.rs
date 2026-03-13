@@ -3,23 +3,23 @@
 //! Each platform provides a `PlatformDetector` implementation that knows how to
 //! detect meeting activity on that OS.
 
-use crate::error::{DetectorError, DetectorResult};
+use crate::error::DetectorResult;
 use crate::types::MeetingSignal;
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
-#[cfg(target_os = "linux")]
-mod linux;
 
+#[cfg(target_os = "linux")]
+pub use linux::LinuxDetector;
 #[cfg(target_os = "macos")]
 pub use macos::MacOSDetector;
 #[cfg(target_os = "windows")]
 pub use windows::WindowsDetector;
-#[cfg(target_os = "linux")]
-pub use linux::LinuxDetector;
 
 /// Trait for platform-specific meeting detection.
 ///

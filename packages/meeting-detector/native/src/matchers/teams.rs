@@ -28,14 +28,9 @@ impl PlatformMatcher for TeamsMatcher {
 
         // Browser-based Teams
         if let Some(ref url) = ctx.url {
-            if url.contains("teams.microsoft.com") 
-                || url.contains("teams.live.com")
-            {
+            if url.contains("teams.microsoft.com") || url.contains("teams.live.com") {
                 // Check if it's actually a meeting (not just Teams web)
-                if title.contains("meeting") 
-                    || title.contains("call")
-                    || ctx.camera_active
-                {
+                if title.contains("meeting") || title.contains("call") || ctx.camera_active {
                     return Some(MeetingPlatform::MicrosoftTeams);
                 }
             }
@@ -61,7 +56,7 @@ mod tests {
     #[test]
     fn test_teams_native_app() {
         let matcher = TeamsMatcher;
-        
+
         // Active meeting
         let ctx = MatchContext::new("Microsoft Teams", "Team Meeting | Microsoft Teams")
             .with_camera_active(true);
@@ -75,7 +70,7 @@ mod tests {
     #[test]
     fn test_teams_browser() {
         let matcher = TeamsMatcher;
-        
+
         let ctx = MatchContext::new("Google Chrome", "Meeting | Microsoft Teams")
             .with_url("https://teams.microsoft.com/v2/");
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::MicrosoftTeams));

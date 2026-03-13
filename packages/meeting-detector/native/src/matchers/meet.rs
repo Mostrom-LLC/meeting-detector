@@ -2,13 +2,12 @@
 
 use super::{MatchContext, PlatformMatcher};
 use crate::types::MeetingPlatform;
-use std::sync::LazyLock;
 use regex::Regex;
+use std::sync::LazyLock;
 
 // Google Meet URL pattern: xxx-xxxx-xxx
-static MEET_CODE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[a-z]{3}-[a-z]{4}-[a-z]{3}").unwrap()
-});
+static MEET_CODE_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[a-z]{3}-[a-z]{4}-[a-z]{3}").unwrap());
 
 /// Matcher for Google Meet meetings.
 #[derive(Debug, Default)]
@@ -51,7 +50,7 @@ impl PlatformMatcher for GoogleMeetMatcher {
     }
 
     fn priority(&self) -> u32 {
-        90  // Slightly lower than Zoom/Teams to avoid Chrome conflicts
+        90 // Slightly lower than Zoom/Teams to avoid Chrome conflicts
     }
 }
 
@@ -62,7 +61,7 @@ mod tests {
     #[test]
     fn test_meet_url() {
         let matcher = GoogleMeetMatcher;
-        
+
         let ctx = MatchContext::new("Google Chrome", "abc-defg-hij - Google Meet")
             .with_url("https://meet.google.com/abc-defg-hij");
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::GoogleMeet));
@@ -71,19 +70,18 @@ mod tests {
     #[test]
     fn test_meet_landing_page() {
         let matcher = GoogleMeetMatcher;
-        
+
         // Landing page without meeting code should not match
-        let ctx = MatchContext::new("Google Chrome", "Google Meet")
-            .with_url("https://meet.google.com/");
+        let ctx =
+            MatchContext::new("Google Chrome", "Google Meet").with_url("https://meet.google.com/");
         assert_eq!(matcher.matches(&ctx), None);
     }
 
     #[test]
     fn test_meet_title_pattern() {
         let matcher = GoogleMeetMatcher;
-        
-        let ctx = MatchContext::new("Google Chrome", "Meet - Team Sync")
-            .with_camera_active(true);
+
+        let ctx = MatchContext::new("Google Chrome", "Meet - Team Sync").with_camera_active(true);
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::GoogleMeet));
     }
 

@@ -31,13 +31,12 @@ pub mod matchers;
 pub mod platform;
 pub mod types;
 
-use napi::bindgen_prelude::*;
-use napi::{JsFunction, Env, Result as NapiResult};
+use napi::Result as NapiResult;
 use std::sync::{Arc, Mutex};
 
 // Re-export types for napi
-pub use types::*;
 pub use error::*;
+pub use types::*;
 
 /// Native meeting detector class exposed to JavaScript.
 #[napi]
@@ -52,10 +51,8 @@ impl NativeMeetingDetector {
     /// Create a new detector with optional configuration.
     #[napi(constructor)]
     pub fn new(options: Option<DetectorOptions>) -> Self {
-        let config: detector::DetectorConfig = options
-            .unwrap_or_default()
-            .into();
-        
+        let config: detector::DetectorConfig = options.unwrap_or_default().into();
+
         let state_machine = detector::DetectorStateMachine::new(config.clone());
 
         Self {
@@ -107,10 +104,10 @@ impl NativeMeetingDetector {
     pub fn platform_name(&self) -> String {
         #[cfg(target_os = "macos")]
         return "macOS".to_string();
-        
+
         #[cfg(target_os = "windows")]
         return "Windows".to_string();
-        
+
         #[cfg(target_os = "linux")]
         return "Linux".to_string();
 
@@ -121,7 +118,11 @@ impl NativeMeetingDetector {
     /// Check if the current platform is supported.
     #[napi]
     pub fn is_supported(&self) -> bool {
-        cfg!(any(target_os = "macos", target_os = "windows", target_os = "linux"))
+        cfg!(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux"
+        ))
     }
 
     /// Process a signal (for testing or manual signal injection).
@@ -158,7 +159,7 @@ pub fn match_platform(
 ) -> String {
     let mut ctx = matchers::MatchContext::new(process_name, window_title)
         .with_camera_active(camera_active.unwrap_or(false));
-    
+
     if let Some(u) = url {
         ctx = ctx.with_url(u);
     }

@@ -6,14 +6,12 @@
 //! - Lifecycle event generation
 //! - Meeting end timeout handling
 
-use crate::error::{DetectorError, DetectorResult};
 use crate::matchers::{MatchContext, MatcherRegistry};
 use crate::types::{
-    Confidence, DetectorOptions, LifecycleReason, MeetingLifecycleEvent,
-    MeetingPlatform, MeetingSignal,
+    Confidence, DetectorOptions, LifecycleReason, MeetingLifecycleEvent, MeetingPlatform,
+    MeetingSignal,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Session info for deduplication.
@@ -100,12 +98,8 @@ impl DetectorStateMachine {
     const LOW_CONFIDENCE_MIN_DURATION: Duration = Duration::from_millis(30000);
 
     /// Services prone to preflight checks.
-    const PRECHECK_PRONE_SERVICES: &'static [&'static str] = &[
-        "microsoft teams",
-        "zoom",
-        "cisco webex",
-        "slack",
-    ];
+    const PRECHECK_PRONE_SERVICES: &'static [&'static str] =
+        &["microsoft teams", "zoom", "cisco webex", "slack"];
 
     /// Create a new state machine.
     pub fn new(config: DetectorConfig) -> Self {
@@ -157,7 +151,8 @@ impl DetectorStateMachine {
         }
 
         // Update lifecycle
-        if let Some(event) = self.update_meeting_lifecycle(platform, confidence, &confident_signal) {
+        if let Some(event) = self.update_meeting_lifecycle(platform, confidence, &confident_signal)
+        {
             events.push(event);
         }
 
@@ -204,16 +199,32 @@ impl DetectorStateMachine {
 
         // System processes to ignore
         const SYSTEM_PROCESSES: &[&str] = &[
-            "sirinc", "afplay", "systemsoundserver", "wavelink",
-            "granola helper", "webkit.gpu", "webkit.networking",
-            "electron helper", "caphost", "webview helper",
+            "sirinc",
+            "afplay",
+            "systemsoundserver",
+            "wavelink",
+            "granola helper",
+            "webkit.gpu",
+            "webkit.networking",
+            "electron helper",
+            "caphost",
+            "webview helper",
         ];
 
         // Generic services to ignore
         const GENERIC_SERVICES: &[&str] = &[
-            "electron", "terminal", "granola", "finder", "xcode",
-            "tips", "google chrome", "safari", "firefox",
-            "microsoft edge", "photo booth", "quicktime player",
+            "electron",
+            "terminal",
+            "granola",
+            "finder",
+            "xcode",
+            "tips",
+            "google chrome",
+            "safari",
+            "firefox",
+            "microsoft edge",
+            "photo booth",
+            "quicktime player",
             "quicktime playerx",
         ];
 
@@ -233,7 +244,7 @@ impl DetectorStateMachine {
         }
 
         // Camera initialization filter
-        if signal.verdict == "requested" 
+        if signal.verdict == "requested"
             && signal.window_title.trim().is_empty()
             && !signal.camera_active
         {
@@ -265,7 +276,8 @@ impl DetectorStateMachine {
         }
 
         // Track low-confidence signals
-        let pending = self.pending_confidence
+        let pending = self
+            .pending_confidence
             .entry(service.clone())
             .or_insert_with(|| PendingConfidenceSignal {
                 first_seen: now,
@@ -356,7 +368,9 @@ impl DetectorStateMachine {
                     confidence,
                     signal: signal.clone(),
                 });
-                Some(MeetingLifecycleEvent::meeting_changed(platform, previous, confidence))
+                Some(MeetingLifecycleEvent::meeting_changed(
+                    platform, previous, confidence,
+                ))
             }
             Some(_) => {
                 // Same meeting, update last_seen
@@ -365,9 +379,8 @@ impl DetectorStateMachine {
                     meeting.signal = signal.clone();
                 }
                 // Schedule meeting end timeout
-                self.meeting_end_scheduled = Some(
-                    now + Duration::from_millis(self.config.meeting_end_timeout_ms as u64)
-                );
+                self.meeting_end_scheduled =
+                    Some(now + Duration::from_millis(self.config.meeting_end_timeout_ms as u64));
                 None
             }
         }
@@ -377,10 +390,9 @@ impl DetectorStateMachine {
     pub fn cleanup_sessions(&mut self) {
         let now = Instant::now();
         let timeout = Duration::from_millis(self.config.session_deduplication_ms as u64);
-        
-        self.active_sessions.retain(|_, session| {
-            now.duration_since(session.last_seen) < timeout
-        });
+
+        self.active_sessions
+            .retain(|_, session| now.duration_since(session.last_seen) < timeout);
     }
 }
 
@@ -393,7 +405,11 @@ mod tests {
             event: "meeting_signal".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             service: service.to_string(),
-            verdict: if camera_active { "allowed".to_string() } else { "requested".to_string() },
+            verdict: if camera_active {
+                "allowed".to_string()
+            } else {
+                "requested".to_string()
+            },
             preflight: false,
             process: service.to_string(),
             pid: "123".to_string(),

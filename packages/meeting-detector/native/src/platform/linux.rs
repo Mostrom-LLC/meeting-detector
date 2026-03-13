@@ -7,9 +7,9 @@
 //! Note: Wayland is not supported due to security restrictions that prevent
 //! window inspection by design.
 
-use crate::error::{DetectorError, DetectorResult};
-use crate::types::MeetingSignal;
+use crate::error::DetectorResult;
 use crate::platform::PlatformDetector;
+use crate::types::MeetingSignal;
 use std::time::Duration;
 
 /// Linux meeting detector implementation.
@@ -47,7 +47,6 @@ impl LinuxDetector {
 
         use x11rb::connection::Connection;
         use x11rb::protocol::xproto::*;
-        use x11rb::wrapper::ConnectionExt as _;
 
         // Connect to X11 server
         let (conn, screen_num) = match x11rb::connect(None) {
@@ -152,34 +151,34 @@ impl LinuxDetector {
     }
 
     /// Get processes using audio capture via procfs.
-    /// 
+    ///
     /// Checks for processes that have /dev/snd/* open (ALSA) or
     /// PipeWire/PulseAudio connections with recording.
     fn get_audio_capture_processes(&self) -> Vec<(u32, String)> {
         use std::fs;
-        
+
         let mut result = Vec::new();
-        
+
         // Look for processes with /dev/snd/* open
         if let Ok(proc_entries) = fs::read_dir("/proc") {
             for entry in proc_entries.flatten() {
                 let pid_str = entry.file_name();
                 let pid_str = pid_str.to_string_lossy();
-                
+
                 // Skip non-numeric directories
                 let pid: u32 = match pid_str.parse() {
                     Ok(p) => p,
                     Err(_) => continue,
                 };
-                
+
                 let fd_dir = entry.path().join("fd");
                 if let Ok(fds) = fs::read_dir(&fd_dir) {
                     for fd in fds.flatten() {
                         if let Ok(link) = fs::read_link(fd.path()) {
                             let link_str = link.to_string_lossy();
-                            
+
                             // Check for sound device access
-                            if link_str.contains("/dev/snd/") 
+                            if link_str.contains("/dev/snd/")
                                 && (link_str.contains("pcmC") && link_str.contains("c"))
                             {
                                 // This is a capture device (c = capture, p = playback)
@@ -193,7 +192,7 @@ impl LinuxDetector {
                 }
             }
         }
-        
+
         result
     }
 
@@ -207,7 +206,7 @@ impl LinuxDetector {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                
+
                 if name.starts_with("video") {
                     // Check if device is open by any process
                     let fd_path = format!("/proc/self/fd");
@@ -220,7 +219,7 @@ impl LinuxDetector {
                             }
                         }
                     }
-                    
+
                     // Also check via /sys/class/video4linux
                     let v4l_path = format!("/sys/class/video4linux/{}/device/uevent", name);
                     if Path::new(&v4l_path).exists() {
@@ -273,9 +272,7 @@ impl PlatformDetector for LinuxDetector {
         }
 
         // Get context about the active window (X11 only)
-        let (window_title, front_app, pid) = self
-            .get_active_window_x11()
-            .unwrap_or_default();
+        let (window_title, front_app, pid) = self.get_active_window_x11().unwrap_or_default();
 
         // Create signal
         let signal = MeetingSignal {

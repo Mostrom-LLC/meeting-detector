@@ -15,7 +15,7 @@ impl PlatformMatcher for ZoomMatcher {
         // Native Zoom app
         if process.contains("zoom") {
             // Filter out non-meeting states
-            if title.contains("home") 
+            if title.contains("home")
                 || title.contains("settings")
                 || title.contains("preferences")
                 || (title.is_empty() && !ctx.camera_active)
@@ -52,10 +52,9 @@ mod tests {
     #[test]
     fn test_zoom_native_app() {
         let matcher = ZoomMatcher;
-        
+
         // Active meeting
-        let ctx = MatchContext::new("zoom.us", "Zoom Meeting")
-            .with_camera_active(true);
+        let ctx = MatchContext::new("zoom.us", "Zoom Meeting").with_camera_active(true);
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::Zoom));
 
         // Home screen (should not match)
@@ -66,7 +65,7 @@ mod tests {
     #[test]
     fn test_zoom_browser() {
         let matcher = ZoomMatcher;
-        
+
         let ctx = MatchContext::new("Google Chrome", "Join Meeting")
             .with_url("https://zoom.us/j/12345678901");
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::Zoom));
@@ -75,7 +74,7 @@ mod tests {
     #[test]
     fn test_non_zoom() {
         let matcher = ZoomMatcher;
-        
+
         let ctx = MatchContext::new("Microsoft Teams", "Meeting");
         assert_eq!(matcher.matches(&ctx), None);
     }

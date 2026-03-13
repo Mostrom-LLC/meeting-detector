@@ -55,16 +55,15 @@ mod tests {
     #[test]
     fn test_slack_huddle() {
         let matcher = SlackMatcher;
-        
-        let ctx = MatchContext::new("Slack", "Huddle in #general")
-            .with_camera_active(true);
+
+        let ctx = MatchContext::new("Slack", "Huddle in #general").with_camera_active(true);
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::Slack));
     }
 
     #[test]
     fn test_slack_regular_usage() {
         let matcher = SlackMatcher;
-        
+
         // Regular channel view should not match
         let ctx = MatchContext::new("Slack", "#engineering - Company Workspace");
         assert_eq!(matcher.matches(&ctx), None);
@@ -73,10 +72,10 @@ mod tests {
     #[test]
     fn test_slack_with_camera() {
         let matcher = SlackMatcher;
-        
+
         // Camera active in Slack = huddle/call
-        let ctx = MatchContext::new("Slack", "#engineering - Company Workspace")
-            .with_camera_active(true);
+        let ctx =
+            MatchContext::new("Slack", "#engineering - Company Workspace").with_camera_active(true);
         assert_eq!(matcher.matches(&ctx), Some(MeetingPlatform::Slack));
     }
 }

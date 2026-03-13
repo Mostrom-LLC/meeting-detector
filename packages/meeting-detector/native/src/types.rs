@@ -220,10 +220,7 @@ pub struct MeetingLifecycleEvent {
 }
 
 impl MeetingLifecycleEvent {
-    pub fn meeting_started(
-        platform: MeetingPlatform,
-        confidence: Confidence,
-    ) -> Self {
+    pub fn meeting_started(platform: MeetingPlatform, confidence: Confidence) -> Self {
         Self {
             event: "meeting_started".to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
@@ -318,19 +315,37 @@ mod tests {
 
     #[test]
     fn test_platform_display() {
-        assert_eq!(MeetingPlatform::MicrosoftTeams.to_string(), "Microsoft Teams");
+        assert_eq!(
+            MeetingPlatform::MicrosoftTeams.to_string(),
+            "Microsoft Teams"
+        );
         assert_eq!(MeetingPlatform::GoogleMeet.to_string(), "Google Meet");
         assert_eq!(MeetingPlatform::EightByEight.to_string(), "8x8");
     }
 
     #[test]
     fn test_platform_from_string() {
-        assert_eq!(MeetingPlatform::from_string("Microsoft Teams"), MeetingPlatform::MicrosoftTeams);
-        assert_eq!(MeetingPlatform::from_string("teams"), MeetingPlatform::MicrosoftTeams);
-        assert_eq!(MeetingPlatform::from_string("ms teams"), MeetingPlatform::MicrosoftTeams);
+        assert_eq!(
+            MeetingPlatform::from_string("Microsoft Teams"),
+            MeetingPlatform::MicrosoftTeams
+        );
+        assert_eq!(
+            MeetingPlatform::from_string("teams"),
+            MeetingPlatform::MicrosoftTeams
+        );
+        assert_eq!(
+            MeetingPlatform::from_string("ms teams"),
+            MeetingPlatform::MicrosoftTeams
+        );
         assert_eq!(MeetingPlatform::from_string("zoom"), MeetingPlatform::Zoom);
-        assert_eq!(MeetingPlatform::from_string("google meet"), MeetingPlatform::GoogleMeet);
-        assert_eq!(MeetingPlatform::from_string("unknown platform"), MeetingPlatform::Unknown);
+        assert_eq!(
+            MeetingPlatform::from_string("google meet"),
+            MeetingPlatform::GoogleMeet
+        );
+        assert_eq!(
+            MeetingPlatform::from_string("unknown platform"),
+            MeetingPlatform::Unknown
+        );
     }
 
     #[test]
@@ -342,10 +357,8 @@ mod tests {
 
     #[test]
     fn test_lifecycle_event_creation() {
-        let started = MeetingLifecycleEvent::meeting_started(
-            MeetingPlatform::Zoom,
-            Confidence::High,
-        );
+        let started =
+            MeetingLifecycleEvent::meeting_started(MeetingPlatform::Zoom, Confidence::High);
         assert_eq!(started.event, "meeting_started");
         assert_eq!(started.platform, "Zoom");
         assert_eq!(started.confidence, "high");

@@ -6,8 +6,8 @@
 //! - Process enumeration for meeting apps
 
 use crate::error::{DetectorError, DetectorResult};
-use crate::types::MeetingSignal;
 use crate::platform::PlatformDetector;
+use crate::types::MeetingSignal;
 use std::process::Command;
 use std::time::Duration;
 
@@ -124,10 +124,8 @@ impl WindowsDetector {
 
     /// Check if any known meeting app is running.
     fn find_meeting_process(&self) -> Option<(String, u32)> {
-        let apps = [
-            "Teams", "Zoom", "Webex", "Slack", "Discord", "Skype"
-        ];
-        
+        let apps = ["Teams", "Zoom", "Webex", "Slack", "Discord", "Skype"];
+
         for app in apps {
             let output = Command::new("powershell")
                 .args([
@@ -160,16 +158,15 @@ impl PlatformDetector for WindowsDetector {
         }
 
         // Get context about the active application
-        let (window_title, front_app, pid) = self
-            .get_foreground_window_info()
-            .unwrap_or_default();
+        let (window_title, front_app, pid) = self.get_foreground_window_info().unwrap_or_default();
 
         // If foreground window isn't a meeting app, try to find one
-        let (process_name, process_pid) = if let Some((meeting_app, meeting_pid)) = self.find_meeting_process() {
-            (meeting_app, meeting_pid)
-        } else {
-            (front_app.clone(), pid)
-        };
+        let (process_name, process_pid) =
+            if let Some((meeting_app, meeting_pid)) = self.find_meeting_process() {
+                (meeting_app, meeting_pid)
+            } else {
+                (front_app.clone(), pid)
+            };
 
         // Generate session ID
         let session_id = format!(
@@ -223,10 +220,10 @@ impl PlatformDetector for WindowsDetector {
         match output {
             Ok(o) if o.status.success() => Ok(()),
             Ok(_) => Err(DetectorError::Internal {
-                message: "PowerShell execution failed".to_string()
+                message: "PowerShell execution failed".to_string(),
             }),
             Err(e) => Err(DetectorError::Internal {
-                message: format!("PowerShell not available: {}", e)
+                message: format!("PowerShell not available: {}", e),
             }),
         }
     }
