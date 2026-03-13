@@ -10,4 +10,10 @@ packages/*/dist/
 AGENTS.md
 NPM_PUBLISHING_PLAN.md
 Tasks/
-todo//packages/meeting-detector/native/target/
+
+# Rust build output
+packages/meeting-detector/target/
+packages/meeting-detector/native/target/
+
+# napi-rs generated files
+packages/meeting-detector/*.node
