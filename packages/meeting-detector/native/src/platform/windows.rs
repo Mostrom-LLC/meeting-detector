@@ -222,13 +222,12 @@ impl PlatformDetector for WindowsDetector {
 
         match output {
             Ok(o) if o.status.success() => Ok(()),
-            Ok(_) => Err(DetectorError::Platform(
-                "PowerShell execution failed".to_string()
-            )),
-            Err(e) => Err(DetectorError::Platform(format!(
-                "PowerShell not available: {}",
-                e
-            ))),
+            Ok(_) => Err(DetectorError::Internal {
+                message: "PowerShell execution failed".to_string()
+            }),
+            Err(e) => Err(DetectorError::Internal {
+                message: format!("PowerShell not available: {}", e)
+            }),
         }
     }
 

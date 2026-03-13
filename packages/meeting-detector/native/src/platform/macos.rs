@@ -207,14 +207,14 @@ impl PlatformDetector for MacOSDetector {
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 if stderr.contains("not allowed") || stderr.contains("assistive") {
-                    Err(DetectorError::PermissionDenied(
-                        "Accessibility permission required. Enable in System Preferences > Security & Privacy > Privacy > Accessibility".to_string()
-                    ))
+                    Err(DetectorError::PermissionDenied {
+                        reason: "Accessibility permission required. Enable in System Preferences > Security & Privacy > Privacy > Accessibility".to_string()
+                    })
                 } else {
                     Ok(()) // Other errors might be transient
                 }
             }
-            Err(e) => Err(DetectorError::Platform(format!("Failed to check permissions: {}", e))),
+            Err(e) => Err(DetectorError::Internal { message: format!("Failed to check permissions: {}", e) }),
         }
     }
 
