@@ -26,7 +26,7 @@
     "build:native:debug": "cd native && npm run build:debug",
     "build:all": "npm run build:native && npm run build:ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build:ts && node --test test/**/*.test.mjs",
+    "test": "npm run build:ts && node --test test/",
     "test:native": "cd native && cargo test",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
