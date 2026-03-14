@@ -1,6 +1,5 @@
 node_modules/
 dist/
-packages/*/dist/
 *.log
 .DS_Store
 .env
@@ -9,11 +8,11 @@ packages/*/dist/
 # Internal documentation and workflows
 AGENTS.md
 NPM_PUBLISHING_PLAN.md
-Tasks/
+tasks/
 
 # Rust build output
-packages/meeting-detector/target/
-packages/meeting-detector/native/target/
+target/
+native/target/
 
 # napi-rs generated files
-packages/meeting-detector/*.node
+*.node

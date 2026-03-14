@@ -32,7 +32,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            packages/meeting-detector/native/target/
+            native/target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install system dependencies (Linux)
@@ -42,15 +42,15 @@ jobs:
           sudo apt-get install -y libx11-dev libxcb1-dev libpulse-dev
 
       - name: Run Rust tests
-        working-directory: packages/meeting-detector/native
+        working-directory: native
         run: cargo test --verbose
 
       - name: Check Rust formatting
-        working-directory: packages/meeting-detector/native
+        working-directory: native
         run: cargo fmt -- --check
 
       - name: Clippy
-        working-directory: packages/meeting-detector/native
+        working-directory: native
         run: cargo clippy -- -D warnings
 
   build-native:
@@ -100,7 +100,7 @@ jobs:
         run: npm install -g @napi-rs/cli
 
       - name: Build native module
-        working-directory: packages/meeting-detector
+        working-directory: .
         run: |
           napi build --cwd native --package-json-path ../package.json --output-dir .. --target ${{ matrix.target }} --release
 
@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: packages/meeting-detector/*.node
+          path: ./*.node
           if-no-files-found: error
 
   test-typescript:
@@ -128,7 +128,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: meeting-detector-native.darwin-arm64.node
-          path: packages/meeting-detector/
+          path: ./
 
       - name: Install dependencies
         run: npm ci

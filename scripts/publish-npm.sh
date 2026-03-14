@@ -112,7 +112,7 @@ NPM_USER="$(npm whoami)"
 echo "==> Authenticated as: ${NPM_USER}"
 
 # Get current package info
-PACKAGE_DIR="${ROOT_DIR}/packages/meeting-detector"
+PACKAGE_DIR="${ROOT_DIR}"
 PACKAGE_NAME="$(node -p "require('${PACKAGE_DIR}/package.json').name")"
 CURRENT_VERSION="$(node -p "require('${PACKAGE_DIR}/package.json').version")"
 echo "==> Package: ${PACKAGE_NAME}"

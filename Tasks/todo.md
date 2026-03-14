@@ -25,7 +25,7 @@
 ## Evidence Capture
 
 - [x] Capture detector event logs for each scenario
-- [x] Compare observed behavior to `Tasks/success-criteria.md`
+- [x] Compare observed behavior to `tasks/success-criteria.md`
 - [x] Record false positives, missed detections, timing issues, and attribution quality
 - [x] Note any platform/account blockers separately from detector failures
 
@@ -71,3 +71,18 @@
 ### Reopened Execution Gate
 
 - This task is not complete until `Google Meet` and `Zoom` remain recorded live passes, and `Slack` plus `Microsoft Teams` receive either recorded live meeting passes or an explicit manual verification sign-off with cleanup confirmation.
+
+# Repo Cleanup Plan
+
+## Scope
+
+- [x] Convert repo references from `packages/meeting-detector` to the root package layout
+- [x] Fix root package scripts for current Node/ESM behavior
+- [x] Remove generated artifacts and stale local build output
+- [x] Verify root package commands after cleanup
+
+## Notes
+
+- The package now lives at repository root, so CI, publish scripts, and local tooling should target `.` and `native/`.
+- The root `dev` script must use the ESM ts-node entrypoint under Node 22.
+- Verification after cleanup: `npm run build`, `npm test`, and a smoke-run of `npm run dev` all succeed from repository root.

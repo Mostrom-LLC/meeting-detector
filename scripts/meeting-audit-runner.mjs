@@ -1,6 +1,6 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { MeetingDetector } from '../packages/meeting-detector/dist/detector.js';
+import { MeetingDetector } from '../dist/detector.js';
 
 function getArg(name, fallback = '') {
   const idx = process.argv.indexOf(name);

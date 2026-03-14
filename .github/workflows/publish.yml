@@ -55,7 +55,7 @@ jobs:
         run: npm install -g @napi-rs/cli
 
       - name: Build native module
-        working-directory: packages/meeting-detector
+        working-directory: .
         run: |
           napi build --cwd native --package-json-path ../package.json --output-dir .. --target ${{ matrix.target }} --release
 
@@ -63,7 +63,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.artifact }}
-          path: packages/meeting-detector/*.node
+          path: ./*.node
           if-no-files-found: error
 
   publish:
@@ -86,10 +86,10 @@ jobs:
       - name: Download all native artifacts
         uses: actions/download-artifact@v4
         with:
-          path: packages/meeting-detector/native-artifacts/
+          path: ./native-artifacts/
 
       - name: Move artifacts to package root
-        working-directory: packages/meeting-detector
+        working-directory: .
         run: |
           mv native-artifacts/native-darwin-x64/*.node . 2>/dev/null || true
           mv native-artifacts/native-darwin-arm64/*.node . 2>/dev/null || true
@@ -104,11 +104,11 @@ jobs:
         run: npm run build
 
       - name: Verify package
-        working-directory: packages/meeting-detector
+        working-directory: .
         run: npm publish --dry-run
 
       - name: Publish to npm
-        working-directory: packages/meeting-detector
+        working-directory: .
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

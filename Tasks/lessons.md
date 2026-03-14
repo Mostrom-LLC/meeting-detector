@@ -122,3 +122,9 @@
 1. **For Teams, waiting room or prejoin evidence is not enough when the user expects a full join**
    - Correction pattern: the user clarified that the Teams scenario must enter a display name and submit `Join`, not stop at the preview screen.
    - Prevention rule: when validating a meeting platform, explicitly confirm whether the workflow must reach joined state, waiting room, or prejoin, and default to the deeper joined state if the user says "sign all the way into the meeting."
+
+## 2026-03-14: Match Response Length to the User's Requested Format
+
+1. **When the user asks for a simple checklist, do not return a long narrative**
+   - Correction pattern: the user explicitly rejected an overly long checklist-style response.
+   - Prevention rule: if the user asks for a simple checklist or concise format, compress the response to the minimum actionable items and move detail into files only if needed.
