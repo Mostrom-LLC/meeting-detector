@@ -1,0 +1,2 @@
+{"type":"session_start","recorded_at":"2026-03-07T15:59:12.721Z","pid":86137,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-07/teams-web-cmux/events.ndjson","dedupe_ms":60000,"debug":true}
+{"type":"session_stop","recorded_at":"2026-03-07T15:59:23.097Z","reason":"SIGTERM","event_count":0,"error_count":0}

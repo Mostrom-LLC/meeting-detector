@@ -1,0 +1,4 @@
+{"type":"session_start","recorded_at":"2026-03-07T15:55:05.532Z","pid":78676,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-07/live-meeting-tests/events.ndjson","dedupe_ms":5000,"debug":true}
+{"type":"session_start","recorded_at":"2026-03-07T15:55:13.601Z","pid":78880,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-07/live-meeting-tests/events.ndjson","dedupe_ms":5000,"debug":true}
+{"type":"session_stop","recorded_at":"2026-03-07T15:55:39.716Z","reason":"SIGTERM","event_count":0,"error_count":0}
+{"type":"session_stop","recorded_at":"2026-03-07T15:55:39.716Z","reason":"SIGTERM","event_count":0,"error_count":0}

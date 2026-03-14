@@ -1,0 +1,2 @@
+{"type":"session_start","recorded_at":"2026-03-07T16:07:21.941Z","pid":99645,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-07/webex-after-patch/events.ndjson","dedupe_ms":60000,"debug":true}
+{"type":"session_stop","recorded_at":"2026-03-07T16:07:42.034Z","reason":"SIGTERM","event_count":0,"error_count":0}

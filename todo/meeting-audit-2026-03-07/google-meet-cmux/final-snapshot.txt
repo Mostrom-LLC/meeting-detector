@@ -1,0 +1,5 @@
+- document "getUserMedia"
+    - heading "WebRTC samples getUserMedia" [ref=e116]
+      - link "WebRTC samples homepage" [ref=e117]
+    - button "Open camera" [ref=e118]
+    - link "View source for this page on GitHub" [ref=e119]

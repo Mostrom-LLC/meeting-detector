@@ -1,0 +1,5 @@
+- document "Sign in to your account"
+                        - main "Trying to sign you in Cancel" [ref=e120]
+                  - link "Terms of use" [ref=e121]
+                  - link "Privacy & cookies" [ref=e122]
+                  - button "Click here for troubleshooting information" [ref=e123]
