@@ -110,3 +110,15 @@
 1. **Bug reports should trigger direct fix execution, not guidance requests**
    - Correction pattern: user requested no hand-holding during bug reports.
    - Prevention rule: when a concrete bug is reported, immediately reproduce, patch, verify, and report results with evidence unless a true external blocker exists.
+
+## 2026-03-14: Completion Criteria Must Match the Explicit Platform List
+
+1. **Do not close meeting-detector validation until every platform named by the user has a live passing scenario**
+   - Correction pattern: reporting partial coverage as if the task was complete was rejected.
+   - Prevention rule: when the user names concrete platforms such as Slack, Zoom, Teams, and Google Meet, track each one explicitly and do not claim completion until each has a recorded live-pass result, not merely probes or blockers.
+
+## 2026-03-14: Join-State Validation Must Match the User's Definition of "In the Meeting"
+
+1. **For Teams, waiting room or prejoin evidence is not enough when the user expects a full join**
+   - Correction pattern: the user clarified that the Teams scenario must enter a display name and submit `Join`, not stop at the preview screen.
+   - Prevention rule: when validating a meeting platform, explicitly confirm whether the workflow must reach joined state, waiting room, or prejoin, and default to the deeper joined state if the user says "sign all the way into the meeting."

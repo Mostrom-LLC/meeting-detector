@@ -1,3 +1,0 @@
-{"type":"session_start","recorded_at":"2026-03-14T11:48:05.886Z","pid":22501,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-14/controlled-probe/events.ndjson","dedupe_ms":60000,"debug":true}
-{"type":"meeting_signal","recorded_at":"2026-03-14T11:48:06.255Z","event_index":1,"signal":{"event":"meeting_signal","timestamp":"2026-03-14T11:48:06Z","service":"Slack","verdict":"allowed","preflight":false,"process":"Slack","pid":"","parent_pid":"","process_path":"","front_app":"Slack","window_title":"","session_id":"","camera_active":true}}
-{"type":"session_stop","recorded_at":"2026-03-14T11:48:19.068Z","reason":"SIGINT","event_count":1,"error_count":0}

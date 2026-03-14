@@ -50,7 +50,8 @@ export class MeetingDetector extends EventEmitter {
     'microsoft teams',
     'zoom',
     'cisco webex',
-    'slack'
+    'slack',
+    'jitsi meet'
   ]);
 
   private process?: ChildProcess;
@@ -774,7 +775,46 @@ export class MeetingDetector extends EventEmitter {
     if (signal.verdict === 'allowed' || signal.preflight === false) {
       return true;
     }
+    if (this.hasStrongBrowserMeetingRoute(signal)) {
+      return true;
+    }
     return !!signal.window_title && signal.window_title.trim() !== '';
+  }
+
+  private hasStrongBrowserMeetingRoute(signal: MeetingSignal): boolean {
+    if (!signal.camera_active) {
+      return false;
+    }
+
+    const url = (signal.chrome_url || '').toLowerCase();
+    if (!url) {
+      return false;
+    }
+
+    const platform = this.normalizePlatform(signal.service);
+    switch (platform) {
+      case 'Microsoft Teams':
+        return (
+          url.includes('teams.microsoft.com/light-meetings/launch') ||
+          url.includes('teams.microsoft.com/meet/') ||
+          url.includes('teams.microsoft.com/l/meetup-join/') ||
+          url.includes('teams.microsoft.com/v2/?meetingjoin=true') ||
+          url.includes('teams.live.com/meet/')
+        );
+      case 'Zoom':
+        return (
+          url.includes('app.zoom.us/wc/') ||
+          url.includes('zoom.us/wc/') ||
+          url.includes('zoom.us/j/')
+        );
+      case 'Cisco Webex':
+        return (
+          url.includes('web.webex.com/') ||
+          url.includes('webex.com/meet/')
+        );
+      default:
+        return false;
+    }
   }
 
   private cleanupExpiredPendingConfidence(now: number): void {
@@ -1006,7 +1046,6 @@ export class MeetingDetector extends EventEmitter {
         ['Microsoft Teams', 'Microsoft Teams'],
         ['zoom.us', 'Zoom'],
         ['Webex', 'Cisco Webex'],
-        ['Slack', 'Slack'],
         ['Discord', 'Discord'],
         ['FaceTime', 'FaceTime'],
       ];

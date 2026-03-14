@@ -165,6 +165,73 @@ test('handles repeated join/leave cycles without stale state', async () => {
   assert.equal(result.started[1].platform, 'Microsoft Teams');
 });
 
+test('treats Teams browser join routes with active camera as strong evidence', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'Microsoft Teams',
+          process: 'Google Chrome Helper',
+          front_app: 'Microsoft Teams',
+          verdict: 'requested',
+          preflight: 'true',
+          chrome_url: 'https://teams.microsoft.com/light-meetings/launch?p=test',
+          window_title: '',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Microsoft Teams');
+});
+
+test('treats Zoom browser join routes with active camera as strong evidence', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'Zoom',
+          process: 'Google Chrome Helper',
+          front_app: 'Zoom',
+          verdict: 'requested',
+          preflight: 'true',
+          chrome_url: 'https://app.zoom.us/wc/8716769399/join?pwd=test',
+          window_title: '',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Zoom');
+});
+
+test('suppresses Jitsi prejoin camera checks without stronger meeting evidence', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'Jitsi Meet',
+        process: 'Google Chrome Helper',
+        front_app: 'Jitsi Meet',
+        verdict: 'requested',
+        preflight: 'true',
+        chrome_url: 'https://meet.jit.si/harke-detector-test',
+        window_title: '',
+      }),
+    },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
+});
+
 test('startup probe does not emit lifecycle events after detector is stopped immediately', async () => {
   // P2 guard: async probe callbacks must abort if stop() was already called.
   const dir = mkdtempSync(join(tmpdir(), 'meeting-test-'));
