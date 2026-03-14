@@ -11,6 +11,12 @@ import {
   MeetingLifecycleCallback,
   MeetingPlatform,
 } from './types.js';
+import {
+  tryLoadNative,
+  type NativeModule,
+  type NativeDetector,
+  isNativePlatformSupported,
+} from './native-bridge.js';
 
 interface SessionInfo {
   lastSeen: number;
@@ -54,6 +60,12 @@ export class MeetingDetector extends EventEmitter {
   private serviceContext: Map<string, ServiceContext> = new Map();
   private activeMeeting: ActiveMeetingState | null = null;
   private meetingEndTimer?: NodeJS.Timeout;
+  
+  // Native module support
+  private nativeModule: NativeModule | null = null;
+  private nativeDetector: NativeDetector | null = null;
+  private nativePollingInterval?: NodeJS.Timeout;
+  private useNative: boolean = false;
 
   constructor(options: MeetingDetectorOptions = {}) {
     super();
@@ -74,6 +86,33 @@ export class MeetingDetector extends EventEmitter {
       includeRawSignalInLifecycle: options.includeRawSignalInLifecycle || false,
       startupProbe: options.startupProbe !== false
     };
+
+    // Try to load native module
+    this.nativeModule = tryLoadNative();
+    if (this.nativeModule) {
+      try {
+        this.nativeDetector = new this.nativeModule.NativeMeetingDetector({
+          debug: this.options.debug,
+          sessionDeduplicationMs: this.options.sessionDeduplicationMs,
+          meetingEndTimeoutMs: this.options.meetingEndTimeoutMs,
+          emitUnknown: this.options.emitUnknown,
+          includeSensitiveMetadata: this.options.includeSensitiveMetadata,
+          includeRawSignalInLifecycle: this.options.includeRawSignalInLifecycle,
+          startupProbe: this.options.startupProbe,
+        });
+        this.useNative = this.nativeDetector.isSupported();
+        if (this.options.debug) {
+          console.log(`[MeetingDetector] Native module loaded, platform: ${this.nativeDetector.platformName()}, supported: ${this.useNative}`);
+        }
+      } catch (e) {
+        if (this.options.debug) {
+          console.log('[MeetingDetector] Native module available but detector creation failed:', e);
+        }
+        this.useNative = false;
+      }
+    } else if (this.options.debug) {
+      console.log('[MeetingDetector] Native module not available, using shell script fallback');
+    }
   }
 
   /**
@@ -81,7 +120,7 @@ export class MeetingDetector extends EventEmitter {
    * @param callback Optional callback function for meeting events
    */
   public start(callback?: MeetingEventCallback): void {
-    if (this.process) {
+    if (this.process || this.nativePollingInterval) {
       throw new Error('Detector is already running');
     }
 
@@ -89,6 +128,13 @@ export class MeetingDetector extends EventEmitter {
       this.on('meeting', callback);
     }
 
+    // Use native detection if available
+    if (this.useNative && this.nativeDetector) {
+      this.startNativeDetection();
+      return;
+    }
+
+    // Fall back to shell script detection
     this.process = spawn('sh', [this.options.scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -197,9 +243,150 @@ export class MeetingDetector extends EventEmitter {
   }
 
   /**
+   * Start native detection using Rust native module.
+   * 
+   * Note: Currently the native module provides state machine processing but
+   * signal generation still uses shell scripts on macOS. On Linux, native
+   * detection uses procfs and X11 directly.
+   */
+  private startNativeDetection(): void {
+    if (!this.nativeDetector) {
+      throw new Error('Native detector not available');
+    }
+
+    if (this.options.debug) {
+      console.log('[MeetingDetector] Starting native detection');
+    }
+
+    this.nativeDetector.start();
+
+    // For now, on macOS we still use shell script for signal generation
+    // but process signals through native state machine
+    if (process.platform === 'darwin') {
+      this.startShellScriptWithNativeProcessing();
+      return;
+    }
+
+    // On Linux/Windows, the native detector can poll directly
+    // TODO: Implement native polling loop using PlatformDetector
+    // For now, fall back to shell script approach
+    this.startShellScriptWithNativeProcessing();
+  }
+
+  /**
+   * Start shell script signal generation with native state machine processing.
+   */
+  private startShellScriptWithNativeProcessing(): void {
+    this.process = spawn('sh', [this.options.scriptPath], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let stderrBuffer = '';
+
+    this.process.stdout?.on('data', (data: Buffer) => {
+      const lines = data.toString().trim().split('\n');
+
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const parsedSignal = this.parseSignal(line);
+            const signal = this.stabilizeSignalContext(parsedSignal);
+            
+            if (this.shouldIgnoreSignal(signal)) {
+              if (this.options.debug) {
+                console.log('[MeetingDetector] Ignoring signal:', signal);
+              }
+              continue;
+            }
+
+            // Use native state machine for processing
+            if (this.nativeDetector) {
+              const events = this.nativeDetector.processSignal(signal);
+              for (const event of events) {
+                this.emitNativeLifecycleEvent(event);
+              }
+            }
+
+            // Emit raw signal for backward compatibility
+            const outputSignal = this.sanitizeSignalForOutput(signal);
+            this.emit('meeting', outputSignal);
+          } catch (e) {
+            if (this.options.debug) {
+              console.error('[MeetingDetector] Parse error:', e);
+            }
+          }
+        }
+      }
+    });
+
+    this.process.stderr?.on('data', (data: Buffer) => {
+      stderrBuffer += data.toString();
+      if (this.options.debug) {
+        console.error('[MeetingDetector stderr]:', data.toString());
+      }
+    });
+
+    this.process.on('close', (code) => {
+      if (this.options.debug) {
+        console.log(`[MeetingDetector] Shell script exited with code ${code}`);
+      }
+      if (code !== 0 && stderrBuffer) {
+        this.emit('error', new Error(`Script error: ${stderrBuffer}`));
+      }
+      this.process = undefined;
+    });
+
+    // Set up meeting end check timer
+    this.nativePollingInterval = setInterval(() => {
+      if (!this.nativeDetector) return;
+      const endEvent = this.nativeDetector.checkMeetingEnd();
+      if (endEvent) {
+        this.emitNativeLifecycleEvent(endEvent);
+      }
+    }, 1000);
+
+    // Periodic session cleanup
+    setInterval(() => {
+      this.nativeDetector?.cleanupSessions();
+    }, 60000);
+  }
+
+  /**
+   * Emit a lifecycle event from native detector.
+   */
+  private emitNativeLifecycleEvent(event: MeetingLifecycleEvent): void {
+    this.emit('lifecycle', event);
+
+    switch (event.event) {
+      case 'meeting_started':
+        this.emit('meeting_started', event);
+        break;
+      case 'meeting_changed':
+        this.emit('meeting_changed', event);
+        break;
+      case 'meeting_ended':
+        this.emit('meeting_ended', event);
+        break;
+    }
+  }
+
+  /**
    * Stop monitoring
    */
   public stop(): void {
+    // Stop native detection
+    if (this.nativePollingInterval) {
+      clearInterval(this.nativePollingInterval);
+      this.nativePollingInterval = undefined;
+    }
+    if (this.nativeDetector) {
+      const endEvent = this.nativeDetector.stop();
+      if (endEvent) {
+        this.emitNativeLifecycleEvent(endEvent);
+      }
+    }
+
+    // Stop shell script detection
     if (this.process) {
       this.process.kill('SIGTERM');
       this.process = undefined;
@@ -217,10 +404,10 @@ export class MeetingDetector extends EventEmitter {
       this.activeSessions.clear();
       this.pendingConfidence.clear();
       this.serviceContext.clear();
+    }
 
-      if (this.options.debug) {
-        console.log('[MeetingDetector] Stopped monitoring');
-      }
+    if (this.options.debug) {
+      console.log('[MeetingDetector] Stopped monitoring');
     }
   }
 
@@ -228,7 +415,28 @@ export class MeetingDetector extends EventEmitter {
    * Check if the detector is currently running
    */
   public isRunning(): boolean {
-    return !!this.process;
+    return !!this.process || !!this.nativePollingInterval;
+  }
+
+  /**
+   * Check if native detection is being used.
+   */
+  public isUsingNative(): boolean {
+    return this.useNative && !!this.nativePollingInterval;
+  }
+
+  /**
+   * Get the native module version if available.
+   */
+  public getNativeVersion(): string | null {
+    return this.nativeModule?.version() ?? null;
+  }
+
+  /**
+   * Get list of supported platforms.
+   */
+  public getSupportedPlatforms(): string[] {
+    return this.nativeModule?.supportedPlatforms() ?? [];
   }
 
   /**
