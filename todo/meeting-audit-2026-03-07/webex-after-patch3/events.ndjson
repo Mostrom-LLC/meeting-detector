@@ -1,3 +1,0 @@
-{"type":"session_start","recorded_at":"2026-03-07T16:10:33.533Z","pid":7854,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-07/webex-after-patch3/events.ndjson","dedupe_ms":60000,"debug":true}
-{"type":"meeting_signal","recorded_at":"2026-03-07T16:10:37.739Z","event_index":1,"signal":{"event":"meeting_signal","timestamp":"2026-03-07T16:10:37Z","service":"Webex","verdict":"requested","preflight":true,"process":"Webex","pid":"7960","parent_pid":"1","process_path":"/Applications/Webex.app/Contents/MacOS/Webex","front_app":"Webex","window_title":"","session_id":"","camera_active":true}}
-{"type":"session_stop","recorded_at":"2026-03-07T16:10:52.636Z","reason":"SIGTERM","event_count":1,"error_count":0}

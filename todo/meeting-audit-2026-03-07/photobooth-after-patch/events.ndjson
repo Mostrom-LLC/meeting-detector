@@ -1,2 +1,0 @@
-{"type":"session_start","recorded_at":"2026-03-07T16:05:42.729Z","pid":96787,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-07/photobooth-after-patch/events.ndjson","dedupe_ms":60000,"debug":true}
-{"type":"session_stop","recorded_at":"2026-03-07T16:05:56.885Z","reason":"SIGTERM","event_count":0,"error_count":0}

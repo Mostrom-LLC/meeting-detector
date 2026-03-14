@@ -1,1 +1,0 @@
-https://webrtc.github.io/samples/src/content/getusermedia/gum/

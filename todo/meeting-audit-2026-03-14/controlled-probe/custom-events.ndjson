@@ -1,0 +1,2 @@
+{"type":"session_start","recorded_at":"2026-03-14T11:52:17.886Z","pid":56016,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-14/controlled-probe/custom-events.ndjson"}
+{"type":"session_stop","recorded_at":"2026-03-14T11:53:24.341Z","reason":"SIGTERM"}

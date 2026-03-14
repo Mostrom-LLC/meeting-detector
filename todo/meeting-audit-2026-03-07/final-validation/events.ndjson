@@ -1,2 +1,0 @@
-{"type":"session_start","recorded_at":"2026-03-07T16:12:14.950Z","pid":10897,"out_path":"/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/todo/meeting-audit-2026-03-07/final-validation/events.ndjson","dedupe_ms":5000,"debug":true}
-{"type":"detector_exit","recorded_at":"2026-03-07T16:12:54.415Z","code":137,"signal":null}
