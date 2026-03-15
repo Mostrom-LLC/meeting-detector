@@ -51,6 +51,56 @@ interface BrowserTabInfo {
 
 const execFileAsync = promisify(execFile);
 
+const BROWSER_PROBE_SCRIPTS: Array<[string, string[]]> = [
+  ['Google Chrome', [
+    'set outText to ""',
+    'tell application "Google Chrome"',
+    'repeat with w in windows',
+    'repeat with t in tabs of w',
+    'set outText to outText & "Google Chrome" & (ASCII character 9) & (title of t) & (ASCII character 9) & (URL of t) & linefeed',
+    'end repeat',
+    'end repeat',
+    'end tell',
+    'return outText',
+  ]],
+  ['Microsoft Edge', [
+    'set outText to ""',
+    'tell application "Microsoft Edge"',
+    'repeat with w in windows',
+    'repeat with t in tabs of w',
+    'set outText to outText & "Microsoft Edge" & (ASCII character 9) & (title of t) & (ASCII character 9) & (URL of t) & linefeed',
+    'end repeat',
+    'end repeat',
+    'end tell',
+    'return outText',
+  ]],
+  ['Safari', [
+    'set outText to ""',
+    'tell application "Safari"',
+    'repeat with w in windows',
+    'repeat with t in tabs of w',
+    'set outText to outText & "Safari" & (ASCII character 9) & (name of t) & (ASCII character 9) & (URL of t) & linefeed',
+    'end repeat',
+    'end repeat',
+    'end tell',
+    'return outText',
+  ]],
+];
+
+export function getBrowserProbeTargets(
+  runningApps?: Iterable<string> | null
+): Array<[string, string[]]> {
+  if (!runningApps) {
+    return [...BROWSER_PROBE_SCRIPTS];
+  }
+
+  const running = new Set(
+    Array.from(runningApps, (app) => app.trim().toLowerCase()).filter(Boolean)
+  );
+
+  return BROWSER_PROBE_SCRIPTS.filter(([browser]) => running.has(browser.toLowerCase()));
+}
+
 export function matchBrowserMeetingTab(tab: BrowserTabInfo): MeetingPlatform | null {
   const url = (tab.url || '').trim().toLowerCase();
   const title = (tab.title || '').trim().toLowerCase();
@@ -75,6 +125,7 @@ export function matchBrowserMeetingTab(tab: BrowserTabInfo): MeetingPlatform | n
   }
 
   if (
+    url.includes('teams.live.com/light-meetings/launch') ||
     url.includes('teams.microsoft.com/light-meetings/launch') ||
     url.includes('teams.microsoft.com/l/meetup-join/') ||
     url.includes('teams.microsoft.com/dl/launcher/launcher.html') ||
@@ -91,10 +142,23 @@ export function matchBrowserMeetingTab(tab: BrowserTabInfo): MeetingPlatform | n
     const hasExplicitHuddleRoute =
       /\/huddle(?:[/?#]|$)/.test(url) ||
       /[?&]huddle_thread=/.test(url);
+    const looksLikeSlackHuddleWindow =
+      title.startsWith('slack - huddle preview') ||
+      title.startsWith('huddle:');
     if (
       (url.includes('app.slack.com/client/') && title.includes('huddle')) ||
-      hasExplicitHuddleRoute
+      hasExplicitHuddleRoute ||
+      looksLikeSlackHuddleWindow
     ) {
+      return 'Slack';
+    }
+  }
+
+  if (url === 'about:blank') {
+    const looksLikeSlackHuddleWindow =
+      title.startsWith('slack - huddle preview') ||
+      title.startsWith('huddle:');
+    if (looksLikeSlackHuddleWindow) {
       return 'Slack';
     }
   }
@@ -371,42 +435,8 @@ export class MeetingDetector extends EventEmitter {
   }
 
   private async listBrowserTabs(): Promise<BrowserTabInfo[]> {
-    const scripts: Array<[string, string[]]> = [
-      ['Google Chrome', [
-        'set outText to ""',
-        'tell application "Google Chrome"',
-        'repeat with w in windows',
-        'repeat with t in tabs of w',
-        'set outText to outText & "Google Chrome" & (ASCII character 9) & (title of t) & (ASCII character 9) & (URL of t) & linefeed',
-        'end repeat',
-        'end repeat',
-        'end tell',
-        'return outText',
-      ]],
-      ['Microsoft Edge', [
-        'set outText to ""',
-        'tell application "Microsoft Edge"',
-        'repeat with w in windows',
-        'repeat with t in tabs of w',
-        'set outText to outText & "Microsoft Edge" & (ASCII character 9) & (title of t) & (ASCII character 9) & (URL of t) & linefeed',
-        'end repeat',
-        'end repeat',
-        'end tell',
-        'return outText',
-      ]],
-      ['Safari', [
-        'set outText to ""',
-        'tell application "Safari"',
-        'repeat with w in windows',
-        'repeat with t in tabs of w',
-        'set outText to outText & "Safari" & (ASCII character 9) & (name of t) & (ASCII character 9) & (URL of t) & linefeed',
-        'end repeat',
-        'end repeat',
-        'end tell',
-        'return outText',
-      ]],
-    ];
-
+    const runningApps = await this.listRunningApplicationNames();
+    const scripts = getBrowserProbeTargets(runningApps);
     const tabs: BrowserTabInfo[] = [];
     for (const [browser, scriptLines] of scripts) {
       try {
@@ -435,6 +465,67 @@ export class MeetingDetector extends EventEmitter {
     }
 
     return tabs;
+  }
+
+  private async listRunningApplicationNames(): Promise<string[] | null> {
+    try {
+      const { stdout } = await execFileAsync(
+        'ps',
+        ['-axo', 'comm='],
+        {
+          timeout: 1000,
+          maxBuffer: 512 * 1024,
+        }
+      );
+
+      const commands = stdout
+        .split('\n')
+        .map((line) => line.trim().toLowerCase())
+        .filter(Boolean);
+
+      return BROWSER_PROBE_SCRIPTS
+        .map(([browser]) => browser)
+        .filter((browser) => {
+          const executable = `/macos/${browser.toLowerCase()}`;
+          const bundleExecutable = `/${browser.toLowerCase()}.app/contents${executable}`;
+          return commands.some((command) =>
+            command.endsWith(executable) || command.includes(bundleExecutable)
+          );
+        });
+    } catch {
+      // Fall through to System Events if the process table probe fails.
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        'osascript',
+        [
+          '-e',
+          'set oldDelims to AppleScript\'s text item delimiters',
+          '-e',
+          'set AppleScript\'s text item delimiters to linefeed',
+          '-e',
+          'tell application "System Events" to set runningApps to name of every application process',
+          '-e',
+          'set outText to runningApps as text',
+          '-e',
+          'set AppleScript\'s text item delimiters to oldDelims',
+          '-e',
+          'return outText',
+        ],
+        {
+          timeout: 1000,
+          maxBuffer: 256 * 1024,
+        }
+      );
+
+      return stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    } catch {
+      return null;
+    }
   }
 
   /**

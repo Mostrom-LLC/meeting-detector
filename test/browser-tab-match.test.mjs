@@ -34,11 +34,27 @@ test('matches Microsoft Teams launcher rewrite routes', () => {
   }), 'Microsoft Teams');
 });
 
+test('matches Microsoft Teams live consumer meeting routes', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Microsoft Teams meeting | Microsoft Teams',
+    url: 'https://teams.live.com/light-meetings/launch?anon=true&lightExperience=true',
+  }), 'Microsoft Teams');
+});
+
 test('matches Slack huddle tabs by app route and title', () => {
   assert.equal(matchBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Huddle in development - Slack',
     url: 'https://app.slack.com/client/T05AXT2C65P/C0AGWNWB2MV/huddle',
+  }), 'Slack');
+});
+
+test('matches Slack huddle preview popups even when Chrome reports about:blank', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Slack - Huddle Preview',
+    url: 'about:blank',
   }), 'Slack');
 });
 

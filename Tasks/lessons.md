@@ -170,3 +170,29 @@
 2. **When adding browser probing, verify the real redirected routes produced by the platforms**
    - Correction pattern: Teams browser detection still failed until the matcher learned the real `launcher.html?...type=meetup-join` rewrite route, and Google Meet still failed when the tab title collapsed to plain `Meet`.
    - Prevention rule: after adding or changing browser URL matchers, inspect the live resolved tab URLs/titles from the actual browser session and add regression tests for those exact rewritten routes and generic-title cases.
+
+## 2026-03-14: Browser Probes Must Not Launch Unrelated Apps
+
+1. **Do not script inactive browser apps by name during discovery**
+   - Correction pattern: probing `Microsoft Edge` by name launched the wrong app and spammed Parallels dialogs on the user’s desktop.
+   - Prevention rule: keep the default macOS browser probe list side-effect free by filtering to already-running browsers first and excluding problematic apps like `Microsoft Edge` unless they are explicitly re-enabled with a validated test path.
+
+## 2026-03-14: Live Browser Routes Matter More Than Assumed Platform URLs
+
+1. **Match the exact consumer Teams route produced by the live browser session**
+   - Correction pattern: `teams.live.com/light-meetings/launch?...` was a real Chrome meeting page, but the matcher only handled `teams.live.com/meet/...` and older `teams.microsoft.com/...` routes, so live Teams browser sessions emitted nothing.
+   - Prevention rule: when validating browser meetings, capture the final resolved URL from the actual tab and add a regression test for that exact route before treating the platform as covered.
+
+2. **Slack browser huddles can surface as titled popup windows with `about:blank` URLs**
+   - Correction pattern: the real Chrome huddle window appeared as `Huddle: #general - Mostrom, LLC - Slack` / `Slack - Huddle Preview` while AppleScript reported `about:blank`, so URL-only Slack matching missed live huddles.
+   - Prevention rule: for Chromium popup windows, use constrained title-based matching when the live platform opens a meeting surface on `about:blank`, and add a negative test so regular workspace tabs still stay suppressed.
+
+## 2026-03-15: Browser Probe Gating Must Degrade Gracefully on macOS
+
+1. **Do not make browser meeting detection depend solely on `System Events`**
+   - Correction pattern: filtering probe targets from `System Events` process names caused all browser meetings to disappear when that query failed, even though direct browser AppleScript tab queries could still succeed.
+   - Prevention rule: use a process-table-first check for side-effect-free browser gating, and if running-app discovery still fails, fall back to the direct browser probe list instead of returning no targets.
+
+2. **Active Edge sessions are part of the supported macOS browser surface**
+   - Correction pattern: removing `Microsoft Edge` from the probe list fixed one launch side effect but regressed real Edge-hosted meetings for users already in a call.
+   - Prevention rule: keep `Microsoft Edge` in the supported probe list, but only suppress inactive-app launches via the running-process gate rather than by deleting Edge support entirely.

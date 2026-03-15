@@ -1,5 +1,30 @@
 # Meeting Detector Live Test Plan
 
+## Strict TDD Validation Matrix
+
+### Current TDD Cycle
+
+- [x] Add a failing regression test that proves the macOS browser probe must not launch inactive browsers such as Microsoft Edge.
+- [x] Patch the browser probe so it only inspects browsers that are already running.
+- [x] Re-run the automated suite after the probe-side-effect fix.
+- [ ] Resume live validation on the intended targets only: Google Chrome web meetings plus native Slack and native Microsoft Teams.
+- [x] Add failing regression tests for active Microsoft Edge eligibility and running-app-discovery fallback.
+- [x] Restore active Edge eligibility while keeping side-effect-free browser gating.
+- [x] Replace the System Events-only running-app gate with a process-table-first probe and a last-resort fallback.
+- [x] Re-run the full automated suite after the macOS browser probe regression fix.
+
+- [x] Write failing-first matcher tests for browser routes on Zoom, Teams, Google Meet, and Slack
+- [x] Write failing-first lifecycle regression for Google Meet generic-title browser tabs
+- [x] Implement macOS browser tab probe through the production detector path
+- [x] Re-run full automated suite after the browser probe implementation
+- [x] Capture fresh live browser evidence for Zoom, Teams, and Google Meet
+- [x] Capture fresh live negative evidence for generic browser camera usage and regular Slack workspace browsing
+- [x] Capture fresh live positive evidence for Slack huddle in the browser
+- [ ] Capture fresh live positive evidence for native Slack
+- [ ] Capture fresh live positive evidence for native Zoom
+- [ ] Capture fresh live positive evidence for native Microsoft Teams
+- [ ] Capture fresh live positive evidence for native Google Meet / Chrome-hosted desktop path if still in scope
+
 ## Scope
 
 - [x] Review acceptance criteria and prior lessons before execution
@@ -31,8 +56,23 @@
 
 ## Review
 
-- [ ] Summarize which scenarios passed, failed, or were blocked
-- [ ] Document concrete improvement opportunities backed by logs
+- [x] Summarize which scenarios passed, failed, or were blocked
+- [x] Document concrete improvement opportunities backed by logs
+
+### 2026-03-14 Browser Revalidation
+
+- `Google Meet` browser pass revalidated live in Google Chrome. Evidence: `Tasks/live-validation-2026-03-14/repro-google-browser-current-1.ndjson`
+- `Zoom` browser pass revalidated live in Google Chrome. Evidence: `Tasks/live-validation-2026-03-14/repro-zoom-browser-current-1.ndjson`
+- `Microsoft Teams` browser pass revalidated live in Google Chrome after adding the real consumer route matcher for `teams.live.com/light-meetings/launch`. Evidence: `Tasks/live-validation-2026-03-14/repro-teams-browser-current-2.ndjson`
+- `Slack` browser huddle pass revalidated live in Google Chrome after adding the popup-title fallback for `about:blank` huddle windows. Evidence: `Tasks/live-validation-2026-03-14/repro-slack-browser-current-1.ndjson`
+- Full automated suite passed after cleanup: `npm test` => `32/32`
+
+### Native Remaining Checklist
+
+- [ ] `Slack` native: open the native workspace window on `Mostrom, LLC`, start a real huddle in `#general`, confirm detector emits `Slack`, then leave the huddle.
+- [ ] `Microsoft Teams` native: open the real Teams desktop client, join a meeting in-app, confirm detector emits `Microsoft Teams`, then leave the meeting.
+- [ ] `Zoom` native: install/open the Zoom desktop client, join a meeting in-app, confirm detector emits `Zoom`, then leave the meeting.
+- [ ] `Cleanup`: after manual native checks, confirm no meeting tabs, huddle popups, or native call windows remain open.
 
 ### Results Summary
 
