@@ -52,6 +52,8 @@ async function runScenario(lines, options = {}, tailSleepMs = 0, timeoutMs = 300
     startupProbe: false,
     ...options,
   });
+  detector.listBrowserTabs = async () => [];
+  detector.detectActiveNativeMeetingSignal = async () => null;
 
   const rawEvents = [];
   const started = [];
@@ -124,6 +126,82 @@ test('emits meeting_changed when platform switches', async () => {
 test('does not guess unknown platforms by default', async () => {
   const result = await runScenario([
     { signal: signal({ process: 'SomeRandomCameraApp', front_app: 'SomeRandomCameraApp', window_title: 'Camera Demo' }) },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
+});
+
+test('suppresses idle native Teams launch signals with generic window state', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'MSTeams',
+        front_app: 'Microsoft Teams',
+        window_title: 'Microsoft Teams',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: false,
+      }),
+    },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
+});
+
+test('suppresses idle native Teams launch signals even if global camera state is hot', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'MSTeams',
+        front_app: 'Microsoft Teams',
+        window_title: 'Microsoft Teams',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: true,
+      }),
+    },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
+});
+
+test('suppresses idle native Zoom launch signals with generic window state', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'zoom.us',
+        front_app: 'zoom.us',
+        window_title: 'Zoom Workplace',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: false,
+      }),
+    },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
+});
+
+test('suppresses idle native Zoom launch signals even if global camera state is hot', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'zoom.us',
+        front_app: 'zoom.us',
+        window_title: 'Zoom Workplace',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: true,
+      }),
+    },
   ]);
 
   assert.equal(result.rawEvents.length, 0);
@@ -547,6 +625,61 @@ test('browser meeting hints can attribute real Chrome media signals without stan
   assert.equal(rawEvents[0].service, 'Microsoft Teams');
 });
 
+test('native app probe can emit an active Teams meeting signal without shell TCC traffic', async () => {
+  const { dir, scriptPath } = createEmitterScript([], 300);
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: false,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  const started = [];
+  const rawEvents = [];
+
+  detector.detectActiveNativeMeetingSignal = async () => ({
+    event: 'meeting_signal',
+    timestamp: new Date().toISOString(),
+    service: 'Microsoft Teams',
+    verdict: 'allowed',
+    preflight: false,
+    process: 'Microsoft Teams',
+    pid: '',
+    parent_pid: '',
+    process_path: '',
+    front_app: 'Microsoft Teams',
+    window_title: 'Daily Sync | Microsoft Teams',
+    session_id: '',
+    camera_active: false,
+    chrome_url: undefined,
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        detector.stop();
+        reject(new Error('scenario timeout'));
+      }, 2000);
+
+      detector.on('meeting_started', (event) => started.push(event));
+      detector.on('meeting', (event) => rawEvents.push(event));
+      detector.on('exit', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      detector.start();
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  assert.equal(started.length, 1);
+  assert.equal(started[0].platform, 'Microsoft Teams');
+  assert.equal(rawEvents.length, 1);
+  assert.equal(rawEvents[0].service, 'Microsoft Teams');
+});
+
 test('startup probe does not emit lifecycle events after detector is stopped immediately', async () => {
   // P2 guard: async probe callbacks must abort if stop() was already called.
   const dir = mkdtempSync(join(tmpdir(), 'meeting-test-'));
@@ -561,6 +694,8 @@ test('startup probe does not emit lifecycle events after detector is stopped imm
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
   });
+  detector.listBrowserTabs = async () => [];
+  detector.detectActiveNativeMeetingSignal = async () => null;
 
   const events = [];
   detector.on('meeting_started', e => events.push(e));

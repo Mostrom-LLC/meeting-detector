@@ -226,3 +226,13 @@
 2. **Keep prejoin Teams `/v2/` titles negative even if they look meeting-adjacent**
    - Correction pattern: the title `Meet | Microsoft Teams` appeared before the meeting started and was incorrectly treated as a joined meeting.
    - Prevention rule: only treat Teams `/v2/` as joined when the title carries a stronger admitted-meeting shape such as `Meeting with ...`, and verify the prejoin title explicitly stays silent in runtime, not just in matcher tests.
+
+## 2026-03-15: Global Camera State Is Not Sufficient Evidence For Native Meetings
+
+1. **Do not treat `VDCAssistant`/camera-daemon activity as a native meeting by itself**
+   - Correction pattern: the camera daemon was active on this Mac even while idle native Teams was merely open, which caused false `Microsoft Teams` meetings when the native probe trusted camera state alone.
+   - Prevention rule: native macOS meeting starts must require stronger evidence than global camera activity, with microphone activity as the primary gate and app/window context only as attribution.
+
+2. **Suppress generic native app windows even when helper processes are noisy**
+   - Correction pattern: idle native Teams and Zoom windows with generic titles like `Microsoft Teams` or `Zoom Workplace` still produced false positives through helper-process/TCC churn.
+   - Prevention rule: treat generic native app windows as non-meetings by default; only escalate when the media-use gate is satisfied and the native app context is stronger than an idle home/chat surface.

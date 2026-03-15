@@ -30,7 +30,9 @@
 - Browser false positives for generic `Teams`, `Meet`, and `Zoom` pages are fixed and verified.
 - `Microsoft Teams` web prejoin on `teams.live.com/v2/` now stays silent; browser tabs are attribution hints only and no longer emit standalone meetings.
 - `Microsoft Teams` web meetings on the current `teams.live.com/v2/` route are still attributable once a real browser media signal arrives.
-- Automated verification is green: `npm test` passed `44/44`.
+- Idle native `Microsoft Teams` no longer emits false meetings just from opening the app while no call is active.
+- Native meeting-start attribution on macOS now depends on active microphone use; global camera-daemon state alone is no longer enough.
+- Automated verification is green: `npm test` passed `47/47`.
 - Native prerequisites already confirmed:
   - `Slack` native is signed into `Mostrom, LLC`.
   - `Microsoft Teams` native can open a real pre-join window from stored join links.

@@ -221,6 +221,8 @@ export class MeetingDetector extends EventEmitter {
   private debugSignalLogTimes: Map<string, number> = new Map();
   private browserProbeInterval?: NodeJS.Timeout;
   private browserProbeInFlight = false;
+  private nativeAppProbeInterval?: NodeJS.Timeout;
+  private nativeAppProbeInFlight = false;
   
   // Native module support
   private nativeModule: NativeModule | null = null;
@@ -310,6 +312,7 @@ export class MeetingDetector extends EventEmitter {
 
     if (process.platform === 'darwin') {
       this.startBrowserTabProbe();
+      this.startNativeAppProbe();
     }
 
     let stderrBuffer = '';
@@ -376,6 +379,10 @@ export class MeetingDetector extends EventEmitter {
         clearInterval(this.browserProbeInterval);
         this.browserProbeInterval = undefined;
       }
+      if (this.nativeAppProbeInterval) {
+        clearInterval(this.nativeAppProbeInterval);
+        this.nativeAppProbeInterval = undefined;
+      }
       this.browserMeetingHints.clear();
       this.process = undefined;
       this.emit('exit', { code, signal });
@@ -425,6 +432,18 @@ export class MeetingDetector extends EventEmitter {
     this.browserProbeInterval.unref?.();
   }
 
+  private startNativeAppProbe(): void {
+    if (this.nativeAppProbeInterval) {
+      clearInterval(this.nativeAppProbeInterval);
+    }
+
+    void this.pollNativeAppMeetings();
+    this.nativeAppProbeInterval = setInterval(() => {
+      void this.pollNativeAppMeetings();
+    }, 2500);
+    this.nativeAppProbeInterval.unref?.();
+  }
+
   private async pollBrowserMeetingTabs(): Promise<void> {
     if (this.browserProbeInFlight || !this.isRunning()) {
       return;
@@ -440,6 +459,26 @@ export class MeetingDetector extends EventEmitter {
       }
     } finally {
       this.browserProbeInFlight = false;
+    }
+  }
+
+  private async pollNativeAppMeetings(): Promise<void> {
+    if (this.nativeAppProbeInFlight || !this.isRunning()) {
+      return;
+    }
+
+    this.nativeAppProbeInFlight = true;
+    try {
+      const signal = await this.detectActiveNativeMeetingSignal();
+      if (signal) {
+        this.handleIncomingSignal(signal);
+      }
+    } catch (error) {
+      if (this.options.debug) {
+        console.log('[MeetingDetector] Native app probe error:', error);
+      }
+    } finally {
+      this.nativeAppProbeInFlight = false;
     }
   }
 
@@ -539,6 +578,142 @@ export class MeetingDetector extends EventEmitter {
     }
 
     return hints[0] || null;
+  }
+
+  private hasAnyBrowserMeetingHints(): boolean {
+    const now = Date.now();
+    for (const hints of this.browserMeetingHints.values()) {
+      if (hints.some((hint) => now - hint.seenAt <= 10000)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async probeCameraActiveState(): Promise<boolean> {
+    try {
+      await execFileAsync('sh', ['-c', 'pgrep -xq VDCAssistant 2>/dev/null || pgrep -xq AppleCameraAssistant 2>/dev/null'], {
+        timeout: 1000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async probeMicrophoneActiveState(): Promise<boolean> {
+    try {
+      await execFileAsync(
+        'sh',
+        ['-c', 'ioreg -r -c AppleHDAEngineInput 2>/dev/null | grep -q \'"IOAudioEngineState" = 1\''],
+        { timeout: 1000 }
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async probeFrontmostAppName(): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync(
+        'osascript',
+        ['-e', 'tell application "System Events" to get name of first process whose frontmost is true'],
+        { timeout: 1000 }
+      );
+      return stdout.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  private async probeFrontWindowTitle(): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync(
+        'osascript',
+        ['-e', 'tell application "System Events" to get title of front window of first process whose frontmost is true'],
+        { timeout: 1000 }
+      );
+      return stdout.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  private looksLikeActiveNativeMeeting(
+    platform: MeetingPlatform,
+    windowTitle: string,
+    micActive: boolean,
+    cameraActive: boolean
+  ): boolean {
+    const title = windowTitle.trim().toLowerCase();
+
+    if (!micActive) {
+      return false;
+    }
+
+    switch (platform) {
+      case 'Microsoft Teams':
+        if (title.startsWith('chat')) {
+          return false;
+        }
+        return true;
+      case 'Zoom':
+        return true;
+      case 'Slack':
+        return title.includes('huddle');
+      case 'Cisco Webex':
+        return title.includes('meeting') || title.includes('call');
+      default:
+        return true;
+    }
+  }
+
+  private async detectActiveNativeMeetingSignal(): Promise<MeetingSignal | null> {
+    const [cameraActive, micActive, frontApp, windowTitle] = await Promise.all([
+      this.probeCameraActiveState(),
+      this.probeMicrophoneActiveState(),
+      this.probeFrontmostAppName(),
+      this.probeFrontWindowTitle(),
+    ]);
+
+    if (!cameraActive && !micActive) {
+      return null;
+    }
+
+    if (!frontApp || this.inferBrowserHost({ process: frontApp, front_app: frontApp, process_path: '' })) {
+      return null;
+    }
+
+    if (this.hasAnyBrowserMeetingHints()) {
+      return null;
+    }
+
+    const platform = this.transformAppName(frontApp, frontApp, windowTitle, '');
+    if (platform === 'Unknown' || platform === 'Google Meet') {
+      return null;
+    }
+
+    if (!this.looksLikeActiveNativeMeeting(platform, windowTitle, micActive, cameraActive)) {
+      return null;
+    }
+
+    return {
+      event: 'meeting_signal',
+      timestamp: new Date().toISOString().slice(0, 19) + 'Z',
+      service: platform,
+      verdict: 'allowed',
+      preflight: false,
+      process: frontApp,
+      pid: '',
+      parent_pid: '',
+      process_path: '',
+      front_app: frontApp,
+      window_title: windowTitle,
+      session_id: '',
+      camera_active: cameraActive,
+      chrome_url: undefined,
+    };
   }
 
   private async listRunningApplicationNames(): Promise<string[] | null> {
@@ -741,6 +916,10 @@ export class MeetingDetector extends EventEmitter {
       clearInterval(this.browserProbeInterval);
       this.browserProbeInterval = undefined;
     }
+    if (this.nativeAppProbeInterval) {
+      clearInterval(this.nativeAppProbeInterval);
+      this.nativeAppProbeInterval = undefined;
+    }
     if (this.nativeDetector) {
       const endEvent = this.nativeDetector.stop();
       if (endEvent) {
@@ -778,7 +957,7 @@ export class MeetingDetector extends EventEmitter {
    * Check if the detector is currently running
    */
   public isRunning(): boolean {
-    return !!this.process || !!this.nativePollingInterval || !!this.browserProbeInterval;
+    return !!this.process || !!this.nativePollingInterval || !!this.browserProbeInterval || !!this.nativeAppProbeInterval;
   }
 
   /**
@@ -897,6 +1076,20 @@ export class MeetingDetector extends EventEmitter {
       if (!signal.camera_active) {
         return true;
       }
+    }
+
+    const genericWindowTitle = (signal.window_title || '').trim().toLowerCase();
+    const nativeIdleTitleByPlatform =
+      (serviceName === 'microsoft teams' && (genericWindowTitle === '' || genericWindowTitle === 'microsoft teams' || genericWindowTitle.startsWith('chat'))) ||
+      (serviceName === 'zoom' && (genericWindowTitle === '' || genericWindowTitle === 'zoom' || genericWindowTitle === 'zoom workplace')) ||
+      (serviceName === 'slack' && (genericWindowTitle === '' || !genericWindowTitle.includes('huddle')));
+
+    if (
+      MeetingDetector.PRECHECK_PRONE_SERVICES.has(serviceName) &&
+      nativeIdleTitleByPlatform &&
+      !signal.chrome_url
+    ) {
+      return true;
     }
 
     // For Google Meet (Chrome-based): validate title only when it is available.
