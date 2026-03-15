@@ -130,6 +130,26 @@ test('does not guess unknown platforms by default', async () => {
   assert.equal(result.started.length, 0);
 });
 
+test('keeps generic browser camera usage suppressed when emitUnknown is false', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'Unknown',
+        process: 'Google Chrome Helper',
+        front_app: 'Unknown',
+        verdict: 'requested',
+        preflight: false,
+        window_title: '',
+        chrome_url: '',
+        camera_active: true,
+      }),
+    },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
+});
+
 test('can emit Unknown lifecycle when configured', async () => {
   const result = await runScenario(
     [{ signal: signal({ process: 'SomeRandomCameraApp', front_app: 'SomeRandomCameraApp', window_title: 'Camera Demo' }) }],
@@ -187,6 +207,30 @@ test('treats Teams browser join routes with active camera as strong evidence', a
 
   assert.equal(result.started.length, 1);
   assert.equal(result.started[0].platform, 'Microsoft Teams');
+});
+
+test('accepts Google Meet browser routes even when the tab title is only Meet', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'Google Meet',
+          process: 'Google Chrome',
+          front_app: 'Google Chrome',
+          verdict: 'requested',
+          preflight: 'false',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+          window_title: 'Meet',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Google Meet');
 });
 
 test('treats Zoom browser join routes with active camera as strong evidence', async () => {
@@ -275,4 +319,157 @@ test('maintains platform identity when meeting is backgrounded and front app is 
 
   assert.equal(result.rawEvents.length, 1);
   assert.equal(result.rawEvents[0].service, 'Microsoft Teams');
+});
+
+test('dedupes repeated debug logs for identical ignored signals', async () => {
+  const { dir, scriptPath } = createEmitterScript([
+    {
+      signal: signal({
+        process: 'SomeRandomCameraApp',
+        front_app: 'Unknown',
+        service: 'Unknown',
+        verdict: 'requested',
+        preflight: 'false',
+        window_title: '',
+        camera_active: 'true',
+        chrome_url: '',
+        process_path: '/Applications/SomeRandomCameraApp.app/Contents/MacOS/SomeRandomCameraApp',
+      }),
+      sleepMs: 20,
+    },
+    {
+      signal: signal({
+        process: 'SomeRandomCameraApp',
+        front_app: 'Unknown',
+        service: 'Unknown',
+        verdict: 'requested',
+        preflight: 'false',
+        window_title: '',
+        camera_active: 'true',
+        chrome_url: '',
+        process_path: '/Applications/SomeRandomCameraApp.app/Contents/MacOS/SomeRandomCameraApp',
+      }),
+    },
+  ]);
+
+  const originalLog = console.log;
+  const logs = [];
+  let detector;
+
+  try {
+    console.log = (...args) => logs.push(args.join(' '));
+    detector = new MeetingDetector({
+      scriptPath,
+      debug: true,
+      startupProbe: false,
+    });
+    await new Promise((resolve) => {
+      detector.on('exit', resolve);
+      detector.start();
+    });
+  } finally {
+    console.log = originalLog;
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  assert.equal(logs.filter((line) => line.includes('Ignoring signal:')).length, 1);
+});
+
+test('dedupes repeated debug logs for identical low-confidence signals', async () => {
+  const { dir, scriptPath } = createEmitterScript([
+    {
+      signal: signal({
+        service: 'Microsoft Teams',
+        process: 'Microsoft Teams WebView',
+        front_app: 'MSTeams',
+        verdict: 'requested',
+        preflight: 'true',
+        window_title: '',
+        camera_active: 'true',
+      }),
+      sleepMs: 20,
+    },
+    {
+      signal: signal({
+        service: 'Microsoft Teams',
+        process: 'Microsoft Teams WebView',
+        front_app: 'MSTeams',
+        verdict: 'requested',
+        preflight: 'true',
+        window_title: '',
+        camera_active: 'true',
+      }),
+    },
+  ]);
+
+  const originalLog = console.log;
+  const logs = [];
+  let detector;
+
+  try {
+    console.log = (...args) => logs.push(args.join(' '));
+    detector = new MeetingDetector({
+      scriptPath,
+      debug: true,
+      startupProbe: false,
+    });
+    await new Promise((resolve) => {
+      detector.on('exit', resolve);
+      detector.start();
+    });
+  } finally {
+    console.log = originalLog;
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  assert.equal(logs.filter((line) => line.includes('Holding low-confidence signal:')).length, 1);
+});
+
+test('can emit Unknown lifecycle for unattributed browser camera usage when explicitly enabled', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'Unknown',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/145.0.7632.119/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Unknown',
+          verdict: 'requested',
+          preflight: 'false',
+          window_title: '',
+          camera_active: 'true',
+          chrome_url: '',
+        }),
+      },
+    ],
+    { emitUnknown: true },
+    200,
+    4000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Unknown');
+  assert.equal(result.rawEvents.length, 1);
+  assert.equal(result.rawEvents[0].service, 'Unknown');
+});
+
+test('does not emit for unresolved browser lobby preflight without joined-state evidence', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'Unknown',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/145.0.7632.119/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Unknown',
+        verdict: 'requested',
+        preflight: 'true',
+        window_title: '',
+        camera_active: 'true',
+        chrome_url: '',
+      }),
+    },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
 });

@@ -1,7 +1,8 @@
-import { spawn, ChildProcess } from 'node:child_process';
+import { spawn, execFile, ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 import {
   MeetingSignal,
   MeetingDetectorOptions,
@@ -42,10 +43,70 @@ interface ActiveMeetingState {
   signal: MeetingSignal;
 }
 
+interface BrowserTabInfo {
+  browser: string;
+  title: string;
+  url: string;
+}
+
+const execFileAsync = promisify(execFile);
+
+export function matchBrowserMeetingTab(tab: BrowserTabInfo): MeetingPlatform | null {
+  const url = (tab.url || '').trim().toLowerCase();
+  const title = (tab.title || '').trim().toLowerCase();
+
+  if (!url) {
+    return null;
+  }
+
+  if (url.includes('meet.google.com/')) {
+    const match = url.match(/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})(?:[/?#]|$)/);
+    if (match) {
+      return 'Google Meet';
+    }
+  }
+
+  if (
+    url.includes('app.zoom.us/wc/') ||
+    url.includes('zoom.us/wc/') ||
+    url.includes('zoom.us/j/')
+  ) {
+    return 'Zoom';
+  }
+
+  if (
+    url.includes('teams.microsoft.com/light-meetings/launch') ||
+    url.includes('teams.microsoft.com/l/meetup-join/') ||
+    url.includes('teams.microsoft.com/dl/launcher/launcher.html') ||
+    url.includes('teams.microsoft.com/meet/') ||
+    url.includes('teams.live.com/meet/') ||
+    url.includes('meetingjoin=true') ||
+    url.includes('type=meetup-join') ||
+    url.includes('%2fl%2fmeetup-join%2f')
+  ) {
+    return 'Microsoft Teams';
+  }
+
+  if (url.includes('app.slack.com/')) {
+    const hasExplicitHuddleRoute =
+      /\/huddle(?:[/?#]|$)/.test(url) ||
+      /[?&]huddle_thread=/.test(url);
+    if (
+      (url.includes('app.slack.com/client/') && title.includes('huddle')) ||
+      hasExplicitHuddleRoute
+    ) {
+      return 'Slack';
+    }
+  }
+
+  return null;
+}
+
 export class MeetingDetector extends EventEmitter {
   private static readonly LOW_CONFIDENCE_WINDOW_MS = 45000;
   private static readonly LOW_CONFIDENCE_FALLBACK_MIN_SIGNALS = 4;
   private static readonly LOW_CONFIDENCE_FALLBACK_MIN_DURATION_MS = 30000;
+  private static readonly DEBUG_SIGNAL_LOG_DEDUPE_MS = 15000;
   private static readonly PRECHECK_PRONE_SERVICES = new Set([
     'microsoft teams',
     'zoom',
@@ -61,6 +122,9 @@ export class MeetingDetector extends EventEmitter {
   private serviceContext: Map<string, ServiceContext> = new Map();
   private activeMeeting: ActiveMeetingState | null = null;
   private meetingEndTimer?: NodeJS.Timeout;
+  private debugSignalLogTimes: Map<string, number> = new Map();
+  private browserProbeInterval?: NodeJS.Timeout;
+  private browserProbeInFlight = false;
   
   // Native module support
   private nativeModule: NativeModule | null = null;
@@ -101,7 +165,10 @@ export class MeetingDetector extends EventEmitter {
           includeRawSignalInLifecycle: this.options.includeRawSignalInLifecycle,
           startupProbe: this.options.startupProbe,
         });
-        this.useNative = this.nativeDetector.isSupported();
+        // On macOS the Rust module does not generate signals itself and its state machine
+        // currently lacks parity with the JS browser/service heuristics. Keep the shell+JS
+        // pipeline as the default there so browser and native app signals behave consistently.
+        this.useNative = process.platform !== 'darwin' && this.nativeDetector.isSupported();
         if (this.options.debug) {
           console.log(`[MeetingDetector] Native module loaded, platform: ${this.nativeDetector.platformName()}, supported: ${this.useNative}`);
         }
@@ -145,6 +212,10 @@ export class MeetingDetector extends EventEmitter {
       this.probeActiveMeetingAtStartup();
     }
 
+    if (process.platform === 'darwin') {
+      this.startBrowserTabProbe();
+    }
+
     let stderrBuffer = '';
 
     this.process.stdout?.on('data', (data: Buffer) => {
@@ -154,36 +225,7 @@ export class MeetingDetector extends EventEmitter {
         if (line.trim()) {
           try {
             const parsedSignal = this.parseSignal(line);
-            const signal = this.stabilizeSignalContext(parsedSignal);
-            if (this.shouldIgnoreSignal(signal)) {
-              if (this.options.debug) {
-                console.log('[MeetingDetector] Ignoring signal:', signal);
-              }
-              continue;
-            }
-
-            const confidentSignal = this.resolveConfidence(signal);
-            if (!confidentSignal) {
-              if (this.options.debug) {
-                console.log('[MeetingDetector] Holding low-confidence signal:', signal);
-              }
-              continue;
-            }
-
-            this.updateMeetingLifecycle(confidentSignal);
-
-            if (this.isDuplicateSession(confidentSignal)) {
-              if (this.options.debug) {
-                console.log('[MeetingDetector] Skipping duplicate session:', confidentSignal);
-              }
-              continue;
-            }
-
-            const outputSignal = this.sanitizeSignalForOutput(confidentSignal);
-            if (this.options.debug) {
-              console.log('[MeetingDetector] Parsed signal:', outputSignal);
-            }
-            this.emit('meeting', outputSignal);
+            this.handleIncomingSignal(parsedSignal);
           } catch (error) {
             if (this.options.debug) {
               console.log('[MeetingDetector] Failed to parse line:', line);
@@ -234,6 +276,10 @@ export class MeetingDetector extends EventEmitter {
         this.emitMeetingLifecycle('meeting_ended', this.activeMeeting.platform, this.activeMeeting.confidence, 'stop', this.activeMeeting.signal);
         this.activeMeeting = null;
       }
+      if (this.browserProbeInterval) {
+        clearInterval(this.browserProbeInterval);
+        this.browserProbeInterval = undefined;
+      }
       this.process = undefined;
       this.emit('exit', { code, signal });
     });
@@ -241,6 +287,154 @@ export class MeetingDetector extends EventEmitter {
     if (this.options.debug) {
       console.log('[MeetingDetector] Started monitoring');
     }
+  }
+
+  private handleIncomingSignal(signal: MeetingSignal): void {
+    const stabilizedSignal = this.stabilizeSignalContext(signal);
+    if (this.shouldIgnoreSignal(stabilizedSignal)) {
+      this.logSignalDebug('Ignoring signal', stabilizedSignal);
+      return;
+    }
+
+    const confidentSignal = this.resolveConfidence(stabilizedSignal);
+    if (!confidentSignal) {
+      this.logSignalDebug('Holding low-confidence signal', stabilizedSignal);
+      return;
+    }
+
+    this.updateMeetingLifecycle(confidentSignal);
+
+    if (this.isDuplicateSession(confidentSignal)) {
+      this.logSignalDebug('Skipping duplicate session', confidentSignal);
+      return;
+    }
+
+    const outputSignal = this.sanitizeSignalForOutput(confidentSignal);
+    if (this.options.debug) {
+      console.log('[MeetingDetector] Parsed signal:', outputSignal);
+    }
+    this.emit('meeting', outputSignal);
+  }
+
+  private startBrowserTabProbe(): void {
+    if (this.browserProbeInterval) {
+      clearInterval(this.browserProbeInterval);
+    }
+
+    void this.pollBrowserMeetingTabs();
+    this.browserProbeInterval = setInterval(() => {
+      void this.pollBrowserMeetingTabs();
+    }, 2500);
+    this.browserProbeInterval.unref?.();
+  }
+
+  private async pollBrowserMeetingTabs(): Promise<void> {
+    if (this.browserProbeInFlight || !this.isRunning()) {
+      return;
+    }
+
+    this.browserProbeInFlight = true;
+    try {
+      const tabs = await this.listBrowserTabs();
+      for (const tab of tabs) {
+        const platform = matchBrowserMeetingTab(tab);
+        if (!platform) {
+          continue;
+        }
+
+        const signal: MeetingSignal = {
+          event: 'meeting_signal',
+          timestamp: new Date().toISOString().slice(0, 19) + 'Z',
+          service: platform,
+          verdict: 'allowed',
+          preflight: false,
+          process: tab.browser,
+          pid: '',
+          parent_pid: '',
+          process_path: '',
+          front_app: tab.browser,
+          window_title: tab.title,
+          session_id: '',
+          camera_active: true,
+          chrome_url: tab.url,
+        };
+
+        this.handleIncomingSignal(signal);
+      }
+    } catch (error) {
+      if (this.options.debug) {
+        console.log('[MeetingDetector] Browser probe error:', error);
+      }
+    } finally {
+      this.browserProbeInFlight = false;
+    }
+  }
+
+  private async listBrowserTabs(): Promise<BrowserTabInfo[]> {
+    const scripts: Array<[string, string[]]> = [
+      ['Google Chrome', [
+        'set outText to ""',
+        'tell application "Google Chrome"',
+        'repeat with w in windows',
+        'repeat with t in tabs of w',
+        'set outText to outText & "Google Chrome" & (ASCII character 9) & (title of t) & (ASCII character 9) & (URL of t) & linefeed',
+        'end repeat',
+        'end repeat',
+        'end tell',
+        'return outText',
+      ]],
+      ['Microsoft Edge', [
+        'set outText to ""',
+        'tell application "Microsoft Edge"',
+        'repeat with w in windows',
+        'repeat with t in tabs of w',
+        'set outText to outText & "Microsoft Edge" & (ASCII character 9) & (title of t) & (ASCII character 9) & (URL of t) & linefeed',
+        'end repeat',
+        'end repeat',
+        'end tell',
+        'return outText',
+      ]],
+      ['Safari', [
+        'set outText to ""',
+        'tell application "Safari"',
+        'repeat with w in windows',
+        'repeat with t in tabs of w',
+        'set outText to outText & "Safari" & (ASCII character 9) & (name of t) & (ASCII character 9) & (URL of t) & linefeed',
+        'end repeat',
+        'end repeat',
+        'end tell',
+        'return outText',
+      ]],
+    ];
+
+    const tabs: BrowserTabInfo[] = [];
+    for (const [browser, scriptLines] of scripts) {
+      try {
+        const { stdout } = await execFileAsync('osascript', scriptLines.flatMap(line => ['-e', line]), {
+          timeout: 1500,
+          maxBuffer: 1024 * 1024,
+        });
+        for (const row of stdout.split('\n')) {
+          const trimmed = row.trim();
+          if (!trimmed) {
+            continue;
+          }
+          const [rowBrowser, title = '', url = ''] = trimmed.split('\t');
+          if (!url) {
+            continue;
+          }
+          tabs.push({
+            browser: rowBrowser || browser,
+            title,
+            url,
+          });
+        }
+      } catch {
+        // Browser may not be installed, running, or scriptable in the current session.
+      }
+    }
+
+    return tabs;
   }
 
   /**
@@ -294,9 +488,7 @@ export class MeetingDetector extends EventEmitter {
             const signal = this.stabilizeSignalContext(parsedSignal);
             
             if (this.shouldIgnoreSignal(signal)) {
-              if (this.options.debug) {
-                console.log('[MeetingDetector] Ignoring signal:', signal);
-              }
+              this.logSignalDebug('Ignoring signal', signal);
               continue;
             }
 
@@ -380,6 +572,10 @@ export class MeetingDetector extends EventEmitter {
       clearInterval(this.nativePollingInterval);
       this.nativePollingInterval = undefined;
     }
+    if (this.browserProbeInterval) {
+      clearInterval(this.browserProbeInterval);
+      this.browserProbeInterval = undefined;
+    }
     if (this.nativeDetector) {
       const endEvent = this.nativeDetector.stop();
       if (endEvent) {
@@ -416,7 +612,7 @@ export class MeetingDetector extends EventEmitter {
    * Check if the detector is currently running
    */
   public isRunning(): boolean {
-    return !!this.process || !!this.nativePollingInterval;
+    return !!this.process || !!this.nativePollingInterval || !!this.browserProbeInterval;
   }
 
   /**
@@ -543,13 +739,15 @@ export class MeetingDetector extends EventEmitter {
     // the pre-check case).
     if (serviceName === 'google meet') {
       const windowTitle = signal.window_title?.trim() || '';
+      const chromeUrl = (signal.chrome_url || '').trim().toLowerCase();
+      const hasValidMeetUrl = /meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:[/?#]|$)/.test(chromeUrl);
       if (windowTitle !== '') {
         // Title present → require it to look like an actual meeting room
         const hasValidMeetTitle =
           windowTitle.includes('meet.google.com') ||
           windowTitle.includes('Meet - ') ||
           /[a-z]{3}-[a-z]{4}-[a-z]{3}/.test(windowTitle);
-        if (!hasValidMeetTitle) {
+        if (!hasValidMeetTitle && !hasValidMeetUrl) {
           return true;
         }
       }
@@ -568,6 +766,34 @@ export class MeetingDetector extends EventEmitter {
       window_title: '',
       chrome_url: undefined,
     };
+  }
+
+  private logSignalDebug(message: string, signal: MeetingSignal): void {
+    if (!this.options.debug) {
+      return;
+    }
+
+    const key = [
+      message,
+      signal.service,
+      signal.process,
+      signal.pid,
+      signal.parent_pid,
+      signal.verdict,
+      String(signal.preflight),
+      signal.front_app,
+      signal.window_title,
+      signal.chrome_url || '',
+    ].join('|');
+
+    const now = Date.now();
+    const lastLoggedAt = this.debugSignalLogTimes.get(key);
+    if (lastLoggedAt && now - lastLoggedAt < MeetingDetector.DEBUG_SIGNAL_LOG_DEDUPE_MS) {
+      return;
+    }
+
+    this.debugSignalLogTimes.set(key, now);
+    console.log(`[MeetingDetector] ${message}:`, signal);
   }
 
   private normalizePlatform(service: string): MeetingPlatform {

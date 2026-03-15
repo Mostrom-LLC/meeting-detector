@@ -128,3 +128,45 @@
 1. **When the user asks for a simple checklist, do not return a long narrative**
    - Correction pattern: the user explicitly rejected an overly long checklist-style response.
    - Prevention rule: if the user asks for a simple checklist or concise format, compress the response to the minimum actionable items and move detail into files only if needed.
+
+## 2026-03-14: CLI Simplifications Must Be Re-Verified Against Live Browser and Native Signals
+
+1. **When changing the direct dev notifier, verify real browser/native meeting paths instead of relying only on synthetic tests**
+   - Correction pattern: the user reported that browser and native app meetings stopped surfacing after the CLI output was simplified.
+   - Prevention rule: after changing notification wiring in `src/index.ts`, run at least one live browser-based signal check and one native-shaped regression check before treating the change as safe.
+
+## 2026-03-14: Do Not Paper Over Missing Attribution by Forcing Unknown Browser Meetings
+
+1. **Respect `emitUnknown` even when browser camera usage looks strong**
+   - Correction pattern: bypassing `emitUnknown` caused false-positive `Unknown` meetings for generic browser camera usage.
+   - Prevention rule: if browser-based meetings disappear, fix the attribution path that maps real meeting routes to a concrete platform instead of letting unattributed browser camera activity through by default.
+
+2. **Do not route macOS production detection through a parallel state machine unless it has feature parity with the JS heuristics**
+   - Correction pattern: the Rust macOS path ignored the JS URL/service heuristics that real browser and helper-process meeting detection depends on, so tests passed while live meetings stopped emitting lifecycle events.
+   - Prevention rule: when two detection pipelines exist, keep the user-facing path on the one with verified live parity until the replacement path is explicitly validated against browser and native meeting scenarios.
+
+## 2026-03-14: CLI Output Should Hide Undefined Lifecycle Fields
+
+1. **Do not dump optional lifecycle properties when they are unset**
+   - Correction pattern: the direct CLI output showed `previous_platform: undefined` and `raw_signal: undefined`, which adds noise without helping the operator.
+   - Prevention rule: for human-facing notifier output, print only the populated fields that matter for the current event instead of logging the entire lifecycle object verbatim.
+
+## 2026-03-14: The Direct CLI Entry Point Needs Its Own Regression Coverage
+
+1. **Do not optimize the CLI notifier around `meeting_started` alone**
+   - Correction pattern: subscribing only to `meeting_started` hid valid later meetings during platform handoffs and same-platform rejoins.
+   - Prevention rule: the shipped `npm run dev` / `node dist/index.js` path must handle `meeting_started`, `meeting_changed`, and a debounced raw-signal fallback for same-platform handoffs.
+
+2. **Do not disable startup probing in the CLI without replacing mid-call detection**
+   - Correction pattern: turning off `startupProbe` made the CLI appear idle when launched during an already-active meeting.
+   - Prevention rule: keep startup probing enabled for the direct notifier unless there is another explicit path that surfaces the current in-progress call state.
+
+## 2026-03-14: Browser Validation Must Use the Target Platforms, Not Generic Stand-Ins
+
+1. **Do not treat non-target browser checks as proof that Teams, Slack, Meet, and Zoom work**
+   - Correction pattern: validating with unrelated browser pages and Jitsi did not prove the named browser meeting platforms actually worked.
+   - Prevention rule: when the user names concrete browser meeting platforms, capture evidence for those exact platforms or explicitly mark the remaining ones as blocked manual checks.
+
+2. **When adding browser probing, verify the real redirected routes produced by the platforms**
+   - Correction pattern: Teams browser detection still failed until the matcher learned the real `launcher.html?...type=meetup-join` rewrite route, and Google Meet still failed when the tab title collapsed to plain `Meet`.
+   - Prevention rule: after adding or changing browser URL matchers, inspect the live resolved tab URLs/titles from the actual browser session and add regression tests for those exact rewritten routes and generic-title cases.

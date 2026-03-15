@@ -86,3 +86,33 @@
 - The package now lives at repository root, so CI, publish scripts, and local tooling should target `.` and `native/`.
 - The root `dev` script must use the ESM ts-node entrypoint under Node 22.
 - Verification after cleanup: `npm run build`, `npm test`, and a smoke-run of `npm run dev` all succeed from repository root.
+
+# Issues Follow-Up
+
+## Resolved
+
+- [x] Repeated debug spam for identical ignored Chrome/Unknown signals is now deduped.
+- [x] Repeated debug spam for identical low-confidence Teams/Slack-style preflight signals is now deduped.
+- [x] The direct `npm run dev` entrypoint now emits only meeting-start notifications instead of raw signal, change, and meeting-ended noise.
+- [x] The direct `npm run dev` entrypoint disables startup probing so simply opening an app like Teams does not produce a synthetic startup notification.
+- [x] Reverted the `emitUnknown` bypass so generic browser camera activity stays suppressed unless `emitUnknown` is explicitly enabled.
+- [x] Reverted the long-lived app announcement cache in the direct CLI entrypoint so later meetings from the same app process are not suppressed.
+- [x] Disabled automatic Rust state-machine routing on macOS; shell-script signals now stay on the JS lifecycle pipeline that includes the browser URL and service heuristics used by live meeting detection.
+
+## Verification
+
+- `npm run build` passed after the detector routing correction.
+- `npm test` passed with `28/28`.
+- Live browser meeting validation passed on `Jitsi Meet`: joining `https://meet.jit.si/harke-detector-live-check` emitted `meeting_started` again from Chrome Helper with platform `Jitsi Meet`. Evidence: `Tasks/live-validation-2026-03-14/jitsi-browser-lifecycle.ndjson`.
+- Live generic browser camera validation stayed suppressed: opening the WebRTC `getUserMedia` sample emitted only an ignored `Unknown` camera request and no lifecycle event. Evidence: `Tasks/live-validation-2026-03-14/generic-browser-camera-negative.ndjson`.
+- Cleanup completed for the live validation: the Jitsi tab was left and navigated away from, and the OTP listener used for the blocked Google sign-in attempt was stopped.
+- Live browser route validation now passes for the target web platforms that could be opened directly in Chrome:
+  - `Zoom`: `Tasks/live-validation-2026-03-14/zoom-web-browser.ndjson`
+  - `Microsoft Teams`: `Tasks/live-validation-2026-03-14/teams-web-browser.ndjson`
+  - `Google Meet`: `Tasks/live-validation-2026-03-14/google-meet-web-browser.ndjson`
+- Live Slack browser negative validation passes: a regular Slack workspace tab no longer misclassifies as a meeting. Evidence: `Tasks/live-validation-2026-03-14/slack-web-regular-negative.ndjson`
+
+## Follow-Up Risk
+
+- Jitsi still emitted a second `meeting_started` after leaving because Chrome Helper briefly continued reporting `preflight=false` on Jitsi's `close3.html` page. That stale post-leave signal is separate from the browser-wide regression, but it remains a cleanup false-positive to address later.
+- Live Slack huddle positive validation is still blocked from automation in this environment because `osascript` does not have Assistive Access, so I can inspect logged-in Slack tabs via browser scripting but cannot click the huddle controls in the existing session to start a real web huddle.
