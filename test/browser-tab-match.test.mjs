@@ -42,6 +42,30 @@ test('matches Microsoft Teams live consumer meeting routes', () => {
   }), 'Microsoft Teams');
 });
 
+test('matches Microsoft Teams v2 meeting surfaces when the title indicates a live meeting', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Meet | Meeting with kaise white | Microsoft Teams',
+    url: 'https://teams.live.com/v2/',
+  }), 'Microsoft Teams');
+});
+
+test('does not match Microsoft Teams v2 prejoin pages', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Meet | Microsoft Teams',
+    url: 'https://teams.live.com/v2/',
+  }), null);
+});
+
+test('does not match Microsoft Teams landing pages', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Microsoft Teams',
+    url: 'https://teams.live.com/v2/',
+  }), null);
+});
+
 test('matches Slack huddle tabs by app route and title', () => {
   assert.equal(matchBrowserMeetingTab({
     browser: 'Google Chrome',
@@ -63,6 +87,14 @@ test('does not match Google Meet landing pages', () => {
     browser: 'Google Chrome',
     title: 'Google Meet',
     url: 'https://meet.google.com/',
+  }), null);
+});
+
+test('does not match generic Zoom web pages under /wc without a meeting join route', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Zoom Workplace',
+    url: 'https://app.zoom.us/wc/home',
   }), null);
 });
 

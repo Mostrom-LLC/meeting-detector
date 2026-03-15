@@ -209,6 +209,31 @@ test('treats Teams browser join routes with active camera as strong evidence', a
   assert.equal(result.started[0].platform, 'Microsoft Teams');
 });
 
+test('treats Microsoft Teams v2 meeting surfaces with explicit meeting titles as strong evidence', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          verdict: 'requested',
+          preflight: 'true',
+          chrome_url: 'https://teams.live.com/v2/',
+          window_title: 'Meet | Meeting with kaise white | Microsoft Teams',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Microsoft Teams');
+});
+
 test('accepts Google Meet browser routes even when the tab title is only Meet', async () => {
   const result = await runScenario(
     [
@@ -257,6 +282,150 @@ test('treats Zoom browser join routes with active camera as strong evidence', as
   assert.equal(result.started[0].platform, 'Zoom');
 });
 
+test('does not switch to Microsoft Teams when browsing a generic Teams page after Google Meet', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Meet',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+        }),
+        sleepMs: 30,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Microsoft Teams',
+          chrome_url: 'https://teams.live.com/v2/',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Google Meet');
+  assert.equal(result.changed.length, 0);
+  assert.equal(result.ended.length, 1);
+});
+
+test('does not start a new meeting from a generic Teams landing page after the prior meeting timed out', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Meet',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+        }),
+        sleepMs: 120,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Microsoft Teams',
+          chrome_url: 'https://teams.live.com/v2/',
+        }),
+      },
+    ],
+    {},
+    220,
+    5000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Google Meet');
+  assert.equal(result.changed.length, 0);
+  assert.equal(result.ended.length, 1);
+});
+
+test('does not start a new meeting from a generic Google Meet landing page after a prior browser meeting', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Zoom',
+          chrome_url: 'https://app.zoom.us/wc/8716769399/join?pwd=test',
+        }),
+        sleepMs: 120,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Google Meet',
+          chrome_url: 'https://meet.google.com/',
+        }),
+      },
+    ],
+    {},
+    220,
+    5000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Zoom');
+  assert.equal(result.changed.length, 0);
+  assert.equal(result.ended.length, 1);
+});
+
+test('does not start a new meeting from a generic Zoom web page after a prior browser meeting', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Meet',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+        }),
+        sleepMs: 120,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Zoom Workplace',
+          chrome_url: 'https://app.zoom.us/wc/home',
+        }),
+      },
+    ],
+    {},
+    220,
+    5000
+  );
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Google Meet');
+  assert.equal(result.changed.length, 0);
+  assert.equal(result.ended.length, 1);
+});
+
 test('suppresses Jitsi prejoin camera checks without stronger meeting evidence', async () => {
   const result = await runScenario([
     {
@@ -274,6 +443,108 @@ test('suppresses Jitsi prejoin camera checks without stronger meeting evidence',
 
   assert.equal(result.rawEvents.length, 0);
   assert.equal(result.started.length, 0);
+});
+
+test('browser meeting tabs alone do not emit lifecycle events without corroborating media signals', async () => {
+  const { dir, scriptPath } = createEmitterScript([], 300);
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: false,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  const started = [];
+  const rawEvents = [];
+
+  detector.listBrowserTabs = async () => [
+    {
+      browser: 'Google Chrome',
+      title: 'Meet | Meeting with kaise white | Microsoft Teams',
+      url: 'https://teams.live.com/v2/',
+    },
+  ];
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        detector.stop();
+        reject(new Error('scenario timeout'));
+      }, 2000);
+
+      detector.on('meeting_started', (event) => started.push(event));
+      detector.on('meeting', (event) => rawEvents.push(event));
+      detector.on('exit', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      detector.start();
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  assert.equal(started.length, 0);
+  assert.equal(rawEvents.length, 0);
+});
+
+test('browser meeting hints can attribute real Chrome media signals without standalone browser starts', async () => {
+  const { dir, scriptPath } = createEmitterScript([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: '',
+        chrome_url: '',
+      }),
+    },
+  ]);
+
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: false,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  const started = [];
+  const rawEvents = [];
+
+  detector.listBrowserTabs = async () => [
+    {
+      browser: 'Google Chrome',
+      title: 'Meet | Meeting with kaise white | Microsoft Teams',
+      url: 'https://teams.live.com/v2/',
+    },
+  ];
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        detector.stop();
+        reject(new Error('scenario timeout'));
+      }, 2000);
+
+      detector.on('meeting_started', (event) => started.push(event));
+      detector.on('meeting', (event) => rawEvents.push(event));
+      detector.on('exit', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      detector.start();
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  assert.equal(started.length, 1);
+  assert.equal(started[0].platform, 'Microsoft Teams');
+  assert.equal(rawEvents.length, 1);
+  assert.equal(rawEvents[0].service, 'Microsoft Teams');
 });
 
 test('startup probe does not emit lifecycle events after detector is stopped immediately', async () => {

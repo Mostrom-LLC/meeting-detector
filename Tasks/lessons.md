@@ -196,3 +196,33 @@
 2. **Active Edge sessions are part of the supported macOS browser surface**
    - Correction pattern: removing `Microsoft Edge` from the probe list fixed one launch side effect but regressed real Edge-hosted meetings for users already in a call.
    - Prevention rule: keep `Microsoft Edge` in the supported probe list, but only suppress inactive-app launches via the running-process gate rather than by deleting Edge support entirely.
+
+## 2026-03-15: Generic Browser Pages Must Never Inherit the Previous Meeting Platform
+
+1. **Use exact meeting-route matchers in every browser classification path**
+   - Correction pattern: after a real browser meeting ended, visiting generic `teams.live.com/v2/` or `app.zoom.us/wc/home` still emitted `Microsoft Teams` or `Zoom` because the raw signal parser matched broad hosts and route prefixes.
+   - Prevention rule: centralize browser URL classification behind one exact-route helper shared by the tab probe, raw signal parser, and strong-evidence gate; do not classify a platform from a generic host or broad prefix alone.
+
+2. **Add lifecycle regressions for post-call browser handoffs, not just standalone URL matching**
+   - Correction pattern: the false positives only appeared after a prior real meeting, so simple matcher tests were insufficient to prove the bug was fixed.
+   - Prevention rule: when a browser false positive depends on prior meeting state, add a lifecycle test that starts a real meeting, lets it end or nearly end, then browses the generic page and asserts there is no `meeting_changed` or new `meeting_started`.
+
+## 2026-03-15: Teams Web Can Use a Generic `/v2/` URL With Only the Title Proving Join State
+
+1. **Do not assume the Teams meeting URL itself always carries the join semantics**
+   - Correction pattern: a real admitted Teams web meeting was live at `https://teams.live.com/v2/`, which looked like a generic landing page unless the tab title `Meet | Meeting with ... | Microsoft Teams` was considered.
+   - Prevention rule: for Teams web, support the current consumer `/v2/` route only when the title explicitly indicates a live meeting, and keep the plain `teams.live.com/v2/` landing page negative.
+
+2. **Do not drop browser meeting titles just because `front_app` is the host browser**
+   - Correction pattern: `front_app=Google Chrome` caused stabilization to discard a valid Teams meeting title even though the URL+title pair already proved the platform.
+   - Prevention rule: when a browser route/title matcher already identifies a platform, preserve that title through context stabilization even if the front app is just Chrome or Safari.
+
+## 2026-03-15: Browser Tabs Are Attribution Hints, Not Standalone Meeting Evidence
+
+1. **Do not synthesize `allowed` browser meetings from tab presence alone**
+   - Correction pattern: the detector emitted `Microsoft Teams` before join because `pollBrowserMeetingTabs()` converted matching tabs directly into synthetic high-confidence meeting signals even when mic/camera were not active.
+   - Prevention rule: browser probing may cache route/title context for attribution, but it must not start lifecycle events by itself; lifecycle must come from a real media-use signal.
+
+2. **Keep prejoin Teams `/v2/` titles negative even if they look meeting-adjacent**
+   - Correction pattern: the title `Meet | Microsoft Teams` appeared before the meeting started and was incorrectly treated as a joined meeting.
+   - Prevention rule: only treat Teams `/v2/` as joined when the title carries a stronger admitted-meeting shape such as `Meeting with ...`, and verify the prejoin title explicitly stays silent in runtime, not just in matcher tests.

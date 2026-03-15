@@ -49,6 +49,14 @@ interface BrowserTabInfo {
   url: string;
 }
 
+interface BrowserMeetingHint {
+  browser: string;
+  platform: MeetingPlatform;
+  title: string;
+  url: string;
+  seenAt: number;
+}
+
 const execFileAsync = promisify(execFile);
 
 const BROWSER_PROBE_SCRIPTS: Array<[string, string[]]> = [
@@ -101,69 +109,92 @@ export function getBrowserProbeTargets(
   return BROWSER_PROBE_SCRIPTS.filter(([browser]) => running.has(browser.toLowerCase()));
 }
 
-export function matchBrowserMeetingTab(tab: BrowserTabInfo): MeetingPlatform | null {
-  const url = (tab.url || '').trim().toLowerCase();
-  const title = (tab.title || '').trim().toLowerCase();
+function isGoogleMeetMeetingUrl(url: string): boolean {
+  return /meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:[/?#]|$)/.test(url);
+}
+
+function isZoomMeetingUrl(url: string): boolean {
+  return (
+    /(?:^https?:\/\/)?app\.zoom\.us\/wc\/\d+\/(?:join|start)(?:[/?#]|$)/.test(url) ||
+    /(?:^https?:\/\/)?(?:app\.)?zoom\.us\/wc\/join\/\d+(?:[/?#]|$)/.test(url) ||
+    /(?:^https?:\/\/)?(?:app\.)?zoom\.us\/j\/\d+(?:[/?#]|$)/.test(url)
+  );
+}
+
+function isTeamsMeetingUrl(url: string): boolean {
+  return (
+    url.includes('teams.live.com/light-meetings/launch') ||
+    url.includes('teams.microsoft.com/light-meetings/launch') ||
+    url.includes('teams.microsoft.com/l/meetup-join/') ||
+    (url.includes('teams.microsoft.com/dl/launcher/launcher.html') &&
+      (url.includes('type=meetup-join') || url.includes('%2fl%2fmeetup-join%2f'))) ||
+    url.includes('teams.microsoft.com/meet/') ||
+    url.includes('teams.live.com/meet/') ||
+    url.includes('teams.microsoft.com/v2/?meetingjoin=true')
+  );
+}
+
+function isTeamsMeetingTitle(title: string): boolean {
+  return title.includes('meeting with') && title.includes('microsoft teams');
+}
+
+function isSlackHuddleTab(url: string, title: string): boolean {
+  const looksLikeSlackHuddleWindow =
+    title.startsWith('slack - huddle preview') ||
+    title.startsWith('huddle:');
+
+  if (url === 'about:blank') {
+    return looksLikeSlackHuddleWindow;
+  }
+
+  if (!url.includes('app.slack.com/')) {
+    return false;
+  }
+
+  const hasExplicitHuddleRoute =
+    /\/huddle(?:[/?#]|$)/.test(url) ||
+    /[?&]huddle_thread=/.test(url);
+
+  return (
+    (url.includes('app.slack.com/client/') && title.includes('huddle')) ||
+    hasExplicitHuddleRoute ||
+    looksLikeSlackHuddleWindow
+  );
+}
+
+export function matchBrowserMeetingUrl(urlInput: string, titleInput = ''): MeetingPlatform | null {
+  const url = (urlInput || '').trim().toLowerCase();
+  const title = (titleInput || '').trim().toLowerCase();
 
   if (!url) {
     return null;
   }
 
-  if (url.includes('meet.google.com/')) {
-    const match = url.match(/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})(?:[/?#]|$)/);
-    if (match) {
-      return 'Google Meet';
-    }
+  if (isGoogleMeetMeetingUrl(url)) {
+    return 'Google Meet';
   }
 
-  if (
-    url.includes('app.zoom.us/wc/') ||
-    url.includes('zoom.us/wc/') ||
-    url.includes('zoom.us/j/')
-  ) {
+  if (isZoomMeetingUrl(url)) {
     return 'Zoom';
   }
 
-  if (
-    url.includes('teams.live.com/light-meetings/launch') ||
-    url.includes('teams.microsoft.com/light-meetings/launch') ||
-    url.includes('teams.microsoft.com/l/meetup-join/') ||
-    url.includes('teams.microsoft.com/dl/launcher/launcher.html') ||
-    url.includes('teams.microsoft.com/meet/') ||
-    url.includes('teams.live.com/meet/') ||
-    url.includes('meetingjoin=true') ||
-    url.includes('type=meetup-join') ||
-    url.includes('%2fl%2fmeetup-join%2f')
-  ) {
+  if (isTeamsMeetingUrl(url)) {
     return 'Microsoft Teams';
   }
 
-  if (url.includes('app.slack.com/')) {
-    const hasExplicitHuddleRoute =
-      /\/huddle(?:[/?#]|$)/.test(url) ||
-      /[?&]huddle_thread=/.test(url);
-    const looksLikeSlackHuddleWindow =
-      title.startsWith('slack - huddle preview') ||
-      title.startsWith('huddle:');
-    if (
-      (url.includes('app.slack.com/client/') && title.includes('huddle')) ||
-      hasExplicitHuddleRoute ||
-      looksLikeSlackHuddleWindow
-    ) {
-      return 'Slack';
-    }
+  if (url.includes('teams.live.com/v2/') && isTeamsMeetingTitle(title)) {
+    return 'Microsoft Teams';
   }
 
-  if (url === 'about:blank') {
-    const looksLikeSlackHuddleWindow =
-      title.startsWith('slack - huddle preview') ||
-      title.startsWith('huddle:');
-    if (looksLikeSlackHuddleWindow) {
-      return 'Slack';
-    }
+  if (isSlackHuddleTab(url, title)) {
+    return 'Slack';
   }
 
   return null;
+}
+
+export function matchBrowserMeetingTab(tab: BrowserTabInfo): MeetingPlatform | null {
+  return matchBrowserMeetingUrl(tab.url, tab.title);
 }
 
 export class MeetingDetector extends EventEmitter {
@@ -185,6 +216,7 @@ export class MeetingDetector extends EventEmitter {
   private pendingConfidence: Map<string, PendingConfidenceSignal> = new Map();
   private serviceContext: Map<string, ServiceContext> = new Map();
   private activeMeeting: ActiveMeetingState | null = null;
+  private browserMeetingHints: Map<string, BrowserMeetingHint[]> = new Map();
   private meetingEndTimer?: NodeJS.Timeout;
   private debugSignalLogTimes: Map<string, number> = new Map();
   private browserProbeInterval?: NodeJS.Timeout;
@@ -344,6 +376,7 @@ export class MeetingDetector extends EventEmitter {
         clearInterval(this.browserProbeInterval);
         this.browserProbeInterval = undefined;
       }
+      this.browserMeetingHints.clear();
       this.process = undefined;
       this.emit('exit', { code, signal });
     });
@@ -400,31 +433,7 @@ export class MeetingDetector extends EventEmitter {
     this.browserProbeInFlight = true;
     try {
       const tabs = await this.listBrowserTabs();
-      for (const tab of tabs) {
-        const platform = matchBrowserMeetingTab(tab);
-        if (!platform) {
-          continue;
-        }
-
-        const signal: MeetingSignal = {
-          event: 'meeting_signal',
-          timestamp: new Date().toISOString().slice(0, 19) + 'Z',
-          service: platform,
-          verdict: 'allowed',
-          preflight: false,
-          process: tab.browser,
-          pid: '',
-          parent_pid: '',
-          process_path: '',
-          front_app: tab.browser,
-          window_title: tab.title,
-          session_id: '',
-          camera_active: true,
-          chrome_url: tab.url,
-        };
-
-        this.handleIncomingSignal(signal);
-      }
+      this.refreshBrowserMeetingHints(tabs);
     } catch (error) {
       if (this.options.debug) {
         console.log('[MeetingDetector] Browser probe error:', error);
@@ -465,6 +474,71 @@ export class MeetingDetector extends EventEmitter {
     }
 
     return tabs;
+  }
+
+  private refreshBrowserMeetingHints(tabs: BrowserTabInfo[]): void {
+    const nextHints = new Map<string, BrowserMeetingHint[]>();
+    const now = Date.now();
+
+    for (const tab of tabs) {
+      const platform = matchBrowserMeetingTab(tab);
+      if (!platform) {
+        continue;
+      }
+
+      const browser = tab.browser.trim();
+      const existing = nextHints.get(browser) || [];
+      existing.push({
+        browser,
+        platform,
+        title: tab.title,
+        url: tab.url,
+        seenAt: now,
+      });
+      nextHints.set(browser, existing);
+    }
+
+    this.browserMeetingHints = nextHints;
+  }
+
+  private inferBrowserHost(signal: Pick<MeetingSignal, 'process' | 'front_app' | 'process_path'>): string | null {
+    const haystacks = [signal.front_app, signal.process, signal.process_path]
+      .map((value) => (value || '').toLowerCase())
+      .filter(Boolean);
+
+    if (haystacks.some((value) => value.includes('google chrome'))) {
+      return 'Google Chrome';
+    }
+    if (haystacks.some((value) => value.includes('microsoft edge'))) {
+      return 'Microsoft Edge';
+    }
+    if (haystacks.some((value) => value.includes('safari'))) {
+      return 'Safari';
+    }
+    return null;
+  }
+
+  private getBrowserMeetingHint(
+    signal: Pick<MeetingSignal, 'process' | 'front_app' | 'process_path'>
+  ): BrowserMeetingHint | null {
+    const browser = this.inferBrowserHost(signal);
+    if (!browser) {
+      return null;
+    }
+
+    const hints = (this.browserMeetingHints.get(browser) || []).filter(
+      (hint) => Date.now() - hint.seenAt <= 10000
+    );
+    if (hints.length === 0) {
+      return null;
+    }
+
+    const uniquePlatforms = new Set(hints.map((hint) => hint.platform));
+    if (uniquePlatforms.size !== 1) {
+      return null;
+    }
+
+    return hints[0] || null;
   }
 
   private async listRunningApplicationNames(): Promise<string[] | null> {
@@ -692,6 +766,7 @@ export class MeetingDetector extends EventEmitter {
       this.activeSessions.clear();
       this.pendingConfidence.clear();
       this.serviceContext.clear();
+      this.browserMeetingHints.clear();
     }
 
     if (this.options.debug) {
@@ -1053,6 +1128,10 @@ export class MeetingDetector extends EventEmitter {
     const rawFront = (signal.front_app || '').trim();
     const rawTitle = (signal.window_title || '').trim();
     const frontConsistent = this.isFrontAppConsistentWithService(rawFront, signal.service);
+    const browserTitleConsistent =
+      !!signal.chrome_url &&
+      !!rawTitle &&
+      matchBrowserMeetingUrl(signal.chrome_url, rawTitle) === this.normalizePlatform(signal.service);
 
     if (rawFront && frontConsistent) {
       next.front_app = rawFront;
@@ -1065,7 +1144,7 @@ export class MeetingDetector extends EventEmitter {
       existing.frontApp = signal.service;
     }
 
-    if (rawTitle && frontConsistent) {
+    if (rawTitle && (frontConsistent || browserTitleConsistent)) {
       next.window_title = rawTitle;
       existing.windowTitle = rawTitle;
     } else if (existing.windowTitle && this.isFrontAppConsistentWithService(next.front_app, signal.service)) {
@@ -1108,30 +1187,15 @@ export class MeetingDetector extends EventEmitter {
       return false;
     }
 
-    const platform = this.normalizePlatform(signal.service);
-    switch (platform) {
-      case 'Microsoft Teams':
-        return (
-          url.includes('teams.microsoft.com/light-meetings/launch') ||
-          url.includes('teams.microsoft.com/meet/') ||
-          url.includes('teams.microsoft.com/l/meetup-join/') ||
-          url.includes('teams.microsoft.com/v2/?meetingjoin=true') ||
-          url.includes('teams.live.com/meet/')
-        );
-      case 'Zoom':
-        return (
-          url.includes('app.zoom.us/wc/') ||
-          url.includes('zoom.us/wc/') ||
-          url.includes('zoom.us/j/')
-        );
-      case 'Cisco Webex':
-        return (
-          url.includes('web.webex.com/') ||
-          url.includes('webex.com/meet/')
-        );
-      default:
-        return false;
+    const browserPlatform = matchBrowserMeetingUrl(url, signal.window_title || '');
+    if (browserPlatform) {
+      return browserPlatform === this.normalizePlatform(signal.service);
     }
+
+    return (
+      this.normalizePlatform(signal.service) === 'Cisco Webex' &&
+      (url.includes('web.webex.com/') || url.includes('webex.com/meet/'))
+    );
   }
 
   private cleanupExpiredPendingConfidence(now: number): void {
@@ -1230,11 +1294,17 @@ export class MeetingDetector extends EventEmitter {
 
   private parseSignal(line: string): MeetingSignal {
     const signal = JSON.parse(line) as Record<string, any>;
-    const chromeUrl = signal.chrome_url || '';
+    const browserHint = this.getBrowserMeetingHint({
+      process: signal.process || '',
+      front_app: signal.front_app || '',
+      process_path: signal.process_path || '',
+    });
+    const chromeUrl = signal.chrome_url || browserHint?.url || '';
+    const windowTitle = signal.window_title || browserHint?.title || '';
 
     // Use transformed app name as service if the original service is a system service like 'microphone' or 'camera'
     const originalService = signal.service || '';
-    const transformedService = this.transformAppName(signal.front_app, signal.process, signal.window_title || '', chromeUrl);
+    const transformedService = this.transformAppName(signal.front_app, signal.process, windowTitle, chromeUrl);
     const finalService = (originalService === 'microphone' || originalService === 'camera' || !originalService)
       ? transformedService
       : originalService;
@@ -1250,7 +1320,7 @@ export class MeetingDetector extends EventEmitter {
       parent_pid: signal.parent_pid || '',
       process_path: signal.process_path || '',
       front_app: signal.front_app || '',
-      window_title: signal.window_title || '',
+      window_title: windowTitle,
       session_id: signal.session_id || '',
       camera_active: signal.camera_active === 'true' || signal.camera_active === true,
       chrome_url: chromeUrl
@@ -1270,11 +1340,9 @@ export class MeetingDetector extends EventEmitter {
     // For Chrome Helper processes, the active tab URL is the definitive source —
     // it does not depend on which app is currently frontmost.
     if (url && proc.includes('chrome')) {
-      if (url.includes('meet.google.com')) return 'Google Meet';
-      if (url.includes('zoom.us/wc/') || url.includes('zoom.us/j/')) return 'Zoom';
-      if (url.includes('teams.microsoft.com') || url.includes('teams.live.com')) return 'Microsoft Teams';
+      const browserPlatform = matchBrowserMeetingUrl(url, title);
+      if (browserPlatform) return browserPlatform;
       if (url.includes('web.webex.com') || url.includes('webex.com/meet')) return 'Cisco Webex';
-      if (url.includes('app.slack.com') && url.includes('huddle')) return 'Slack';
       if (url.includes('meet.jit.si') || url.includes('jitsi')) return 'Jitsi Meet';
       if (url.includes('whereby.com')) return 'Whereby';
       if (url.includes('bluejeans.com')) return 'BlueJeans';
