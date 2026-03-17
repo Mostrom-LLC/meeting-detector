@@ -282,3 +282,9 @@
 2. **Browser title matching is the practical web fallback without an extension**
    - Correction pattern: the user explicitly noted that tab URLs are not reliably available without an extension, so serious web detection should rely on window-title patterns for the common case and treat an extension/native-messaging bridge as the optional last-10%-accuracy path.
    - Prevention rule: for browser meeting planning, assume title-based attribution by default and document extension-based enrichment as optional, not as a baseline requirement.
+
+## 2026-03-17: Overlapping Browser Meetings Must Not Cause Platform Flapping
+
+1. **Do not let a second browser meeting tab cause rapid alternating `meeting_changed` events**
+   - Correction pattern: with a live Google Meet already detected, opening Zoom web caused the detector to bounce repeatedly between `Google Meet` and `Zoom` within the same second instead of converging on one active platform.
+   - Prevention rule: when multiple browser meeting candidates coexist, add regressions for overlap/handoff stability and require convergence logic strong enough to prevent rapid platform flapping from mixed helper-process or browser-hint signals.

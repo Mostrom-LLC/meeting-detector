@@ -1,148 +1,179 @@
 # Meeting Detector
 
-Real-time meeting detection for macOS desktop apps using TCC (Transparency, Consent, and Control) logs.
+Meeting lifecycle detection for desktop meeting apps and browser-hosted meetings.
 
-## Features
+## Status
 
-- 🎯 **App-agnostic**: Works with Zoom, Slack, Teams, Chrome, and any desktop meeting app
-- ⚡ **Real-time**: Detects meeting start/stop events as they happen
-- 🔍 **Process attribution**: Identifies which app is using camera/microphone with PID
-- 🎛️ **Event-driven**: Clean Node.js API with TypeScript support
-- 🚫 **Smart deduplication**: Prevents spam from multi-process apps like Teams
-- 🔁 **Lifecycle hooks**: Emits `meeting_started`, `meeting_changed`, and `meeting_ended`
-- 🧠 **Uncertainty-safe**: Uses `Unknown`/no-detection instead of guessing
-- 🔒 **Privacy-first**: Redacts sensitive metadata by default
+This package currently ships a TypeScript/Node detector with a production macOS path.
+
+What it does today:
+- emits normalized raw meeting signals
+- emits lifecycle events: `meeting_started`, `meeting_changed`, `meeting_ended`
+- detects browser-hosted meeting platforms on macOS through TCC/media signals plus browser route/title heuristics
+- supports a direct CLI/dev mode for local validation
+
+What is still being hardened:
+- native Slack and native Microsoft Teams reliability on macOS
+- cross-platform parity
+- a scored multi-signal detector core
+
+The active hardening plan lives in [tasks/signal-detection-hardening.md](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/tasks/signal-detection-hardening.md).
+
+## Current Detection Model
+
+The current implementation combines:
+- macOS TCC/media-use signals from `meeting-detect.sh`
+- process attribution and normalization
+- browser meeting route/title matching
+- lifecycle state tracking with dedupe and timeout handling
+
+Supported meeting platforms in the public type surface include:
+- `Microsoft Teams`
+- `Zoom`
+- `Google Meet`
+- `Slack`
+- `Cisco Webex`
+- additional normalized platforms listed in [src/types.ts](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/src/types.ts)
 
 ## Installation
 
-### From npm (when published)
+### npm
+
 ```bash
 npm install @mostrom/meeting-detector
 ```
 
 ### Local development
+
 ```bash
 git clone <repo-url>
-cd meeting-detector
+cd harke-meeting-detector
 npm install
 npm run build
 ```
 
-### As a local dependency
-```bash
-# In your project's package.json
-{
-  "dependencies": {
-    "@mostrom/meeting-detector": "file:../path/to/meeting-detector"
-  }
-}
-```
+## Requirements
 
-### Using npm link
-```bash
-# In meeting-detector directory
-npm link
+- Node.js `>=18`
+- macOS for the current production detection path
 
-# In your project directory
-npm link @mostrom/meeting-detector
-```
+The package metadata lists `darwin`, `win32`, and `linux`, but the actively validated implementation today is the macOS path. The long-term cross-platform direction is the Rust `napi-rs` core described in [tasks/signal-detection-hardening.md](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/tasks/signal-detection-hardening.md).
 
 ## Quick Start
 
 ### Simple API
-```typescript
+
+```ts
 import { detector } from '@mostrom/meeting-detector';
 import type { MeetingSignal } from '@mostrom/meeting-detector';
 
 const meetingDetector = detector((signal: MeetingSignal) => {
-  console.log('Meeting event:', signal);
-}, { debug: true });
+  console.log('Meeting signal:', signal.service, signal.verdict);
+}, {
+  debug: true,
+});
 
-// Graceful shutdown
 process.on('SIGINT', () => {
   meetingDetector.stop();
   process.exit(0);
 });
 ```
 
-### Class API
-```typescript
+### Lifecycle API
+
+```ts
 import { MeetingDetector } from '@mostrom/meeting-detector';
-import type { MeetingSignal } from '@mostrom/meeting-detector';
 
-const detector = new MeetingDetector({ debug: true });
-
-detector.onMeeting((signal: MeetingSignal) => {
-  console.log('Raw signal:', signal.service, signal.verdict);
+const detector = new MeetingDetector({
+  debug: false,
+  includeRawSignalInLifecycle: true,
 });
 
 detector.onMeetingStarted((event) => {
-  console.log(`✅ Started: ${event.platform}`);
+  console.log('started', event.platform, event.confidence);
 });
 
 detector.onMeetingChanged((event) => {
-  console.log(`🔄 Changed: ${event.previous_platform} -> ${event.platform}`);
+  console.log('changed', event.previous_platform, '->', event.platform);
 });
 
 detector.onMeetingEnded((event) => {
-  console.log(`⏹️ Ended: ${event.platform} (${event.reason})`);
+  console.log('ended', event.platform, event.reason);
 });
 
 detector.onError((error) => {
-  console.error('Detection error:', error);
+  console.error(error.message);
 });
 
 detector.start();
-
-// Later...
-detector.stop();
 ```
 
-## API Reference
+## CLI / Local Validation
 
-### `detector(callback, options?)`
-Convenience function for simple usage.
+Run the built-in notifier:
 
-### `MeetingDetector` Class
-
-#### Constructor
-```typescript
-new MeetingDetector(options?: MeetingDetectorOptions)
+```bash
+npm run dev
 ```
 
-#### Methods
-- `start(callback?)` - Start monitoring
-- `stop()` - Stop monitoring  
-- `isRunning()` - Check if running
-- `onMeeting(callback)` - Add meeting event listener
-- `onMeetingStarted(callback)` - Add meeting started listener
-- `onMeetingChanged(callback)` - Add meeting changed listener
-- `onMeetingEnded(callback)` - Add meeting ended listener
-- `onError(callback)` - Add error event listener
+or after build:
 
-#### Events
-- `meeting` - Emitted for normalized raw meeting signals
-- `meeting_started` - Emitted when active meeting starts
-- `meeting_changed` - Emitted when active platform changes
-- `meeting_ended` - Emitted when meeting ends (timeout/stop)
-- `error` - Emitted on errors
-- `exit` - Emitted when process exits
+```bash
+npm run build
+npm start
+```
 
-## Example Output
+The CLI prints only positive meeting detections and suppresses duplicate/raw noise where possible.
 
-```json
-{
-  "event": "meeting_started",
-  "timestamp": "2026-03-07T12:30:29.000Z",
-  "platform": "Microsoft Teams",
-  "confidence": "high",
-  "reason": "signal"
+## API
+
+### Exports
+
+- `detector(callback, options?)`
+- `MeetingDetector`
+- all public types from [src/types.ts](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/src/types.ts)
+
+### `MeetingDetector` methods
+
+- `start(callback?)`
+- `stop()`
+- `isRunning()`
+- `isUsingNative()`
+- `getNativeVersion()`
+- `getSupportedPlatforms()`
+- `onMeeting(callback)`
+- `onMeetingStarted(callback)`
+- `onMeetingChanged(callback)`
+- `onMeetingEnded(callback)`
+- `onError(callback)`
+
+### Events
+
+- `meeting`
+- `meeting_started`
+- `meeting_changed`
+- `meeting_ended`
+- `error`
+- `exit`
+
+### Options
+
+```ts
+interface MeetingDetectorOptions {
+  scriptPath?: string;
+  debug?: boolean;
+  sessionDeduplicationMs?: number;
+  meetingEndTimeoutMs?: number;
+  emitUnknown?: boolean;
+  includeSensitiveMetadata?: boolean;
+  includeRawSignalInLifecycle?: boolean;
+  startupProbe?: boolean;
 }
 ```
 
-## TypeScript Types
+## Emitted Types
 
-```typescript
+```ts
 type MeetingPlatform =
   | 'Microsoft Teams'
   | 'Zoom'
@@ -165,6 +196,7 @@ interface MeetingSignal {
   window_title: string;
   session_id: string;
   camera_active: boolean;
+  mic_active?: boolean;
   chrome_url?: string;
 }
 
@@ -177,49 +209,38 @@ interface MeetingLifecycleEvent {
   reason: 'signal' | 'switch' | 'timeout' | 'stop';
   raw_signal?: MeetingSignal;
 }
-
-interface MeetingDetectorOptions {
-  scriptPath?: string;
-  debug?: boolean;
-  sessionDeduplicationMs?: number;
-  meetingEndTimeoutMs?: number;
-  emitUnknown?: boolean;
-  includeSensitiveMetadata?: boolean;
-  includeRawSignalInLifecycle?: boolean;
-  startupProbe?: boolean;
-}
 ```
+
+## Known Limitations
+
+- macOS is the only actively validated detection path right now.
+- Browser meeting detection without an extension depends on route/title heuristics and can miss minimized/inactive-tab edge cases.
+- Native Slack and native Microsoft Teams detection are under active hardening.
+- The current implementation is heuristic-driven; it is being redesigned toward a weighted scoring model instead of single-signal gates.
+
+## Success Criteria
+
+The active release checklist lives in [tasks/success-criteria.md](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/tasks/success-criteria.md). It includes:
+- core meeting lifecycle behavior
+- browser/native support expectations
+- edge-case gates such as stale browser handoff, preview/lobby suppression, popup windows, same-platform rejoins, and timeout stability
 
 ## Development
 
 ```bash
-# Run in development mode
-npm run dev
-
-# Build TypeScript
 npm run build
-
-# Watch for changes
-npm run watch
-
-# Prepare for publishing
-npm run prepublishOnly
+npm run build:all
+npm test
+npm run test:native
+npm run dev
 ```
 
-## Requirements
-
-- macOS 10.14+ (uses TCC privacy logs)
-- Node.js 14.0+
-- TypeScript 4.5+ (for development)
-
-## How It Works
-
-The detector runs a bash script that monitors macOS TCC (privacy) logs for microphone and camera access events. It uses:
-
-1. **TCC Log Streaming** - Monitors `com.apple.TCC` subsystem logs
-2. **Process Attribution** - Extracts PIDs from `target_token` fields  
-3. **Smart Deduplication** - Prevents spam from multi-process apps
-4. **State Tracking** - Only emits when meaningful changes occur
+Useful files:
+- [src/detector.ts](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/src/detector.ts)
+- [src/index.ts](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/src/index.ts)
+- [src/types.ts](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/src/types.ts)
+- [tasks/signal-detection-hardening.md](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/tasks/signal-detection-hardening.md)
+- [tasks/success-criteria.md](/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/tasks/success-criteria.md)
 
 ## License
 

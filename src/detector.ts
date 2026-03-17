@@ -298,7 +298,8 @@ export class MeetingDetector extends EventEmitter {
   private browserProbeInFlight = false;
   private nativeAppProbeInterval?: NodeJS.Timeout;
   private nativeAppProbeInFlight = false;
-  
+  private cachedMediaState: { camera: boolean; mic: boolean; updatedAt: number } = { camera: false, mic: false, updatedAt: 0 };
+
   // Native module support
   private nativeModule: NativeModule | null = null;
   private nativeDetector: NativeDetector | null = null;
@@ -469,6 +470,16 @@ export class MeetingDetector extends EventEmitter {
   }
 
   private handleIncomingSignal(signal: MeetingSignal): void {
+    // Enrich TCC signals with cached media state from the Swift AVCaptureDevice
+    // probe (updated every ~2.5s by browser/native probes). The shell script uses
+    // pgrep VDCAssistant for camera_active which checks daemon existence, not
+    // active capture sessions — override it with the real state.
+    const cacheAgeMs = Date.now() - this.cachedMediaState.updatedAt;
+    if (this.cachedMediaState.updatedAt > 0 && cacheAgeMs < 5000) {
+      signal.camera_active = this.cachedMediaState.camera;
+      signal.mic_active = this.cachedMediaState.mic;
+    }
+
     const stabilizedSignal = this.stabilizeSignalContext(signal);
     if (this.shouldIgnoreSignal(stabilizedSignal)) {
       this.logSignalDebug('Ignoring signal', stabilizedSignal);
@@ -529,12 +540,39 @@ export class MeetingDetector extends EventEmitter {
       const tabs = await this.listBrowserTabs();
       this.refreshBrowserMeetingHints(tabs);
 
-      // Browser meeting hints are attribution aids only — they help identify the
-      // platform when a TCC signal arrives from a Chrome Helper process. They do
-      // NOT synthesize meeting signals on their own because the media-state probes
-      // (pgrep VDCAssistant, ioreg AppleHDAEngineInput) are unreliable on Apple
-      // Silicon: VDCAssistant runs persistently on Macs with Studio Display cameras
-      // and IOAudioEngineState is absent on Apple Silicon audio drivers.
+      // Synthesize a meeting signal when a browser meeting tab is open AND
+      // the mic is actively capturing. The mic check uses AVCaptureDevice
+      // .isInUseByAnotherApplication (via the compiled Swift helper) which
+      // reliably detects active capture sessions — not just device presence.
+      const hint = this.pickStrongestBrowserMeetingHint();
+      if (hint) {
+        const mediaState = await this.probeMediaState();
+        if (mediaState.mic && this.isRunning()) {
+          const syntheticSignal: MeetingSignal = {
+            event: 'meeting_signal',
+            timestamp: new Date().toISOString().slice(0, 19) + 'Z',
+            service: hint.platform,
+            verdict: 'allowed',
+            preflight: false,
+            process: hint.browser,
+            pid: '',
+            parent_pid: '',
+            process_path: '',
+            front_app: hint.browser,
+            window_title: hint.title,
+            session_id: '',
+            camera_active: mediaState.camera,
+            mic_active: mediaState.mic,
+            chrome_url: hint.url,
+          };
+
+          this.updateMeetingLifecycle(syntheticSignal);
+          if (!this.isDuplicateSession(syntheticSignal)) {
+            const outputSignal = this.sanitizeSignalForOutput(syntheticSignal);
+            this.emit('meeting', outputSignal);
+          }
+        }
+      }
     } catch (error) {
       if (this.options.debug) {
         console.log('[MeetingDetector] Browser probe error:', error);
@@ -698,28 +736,33 @@ export class MeetingDetector extends EventEmitter {
     return false;
   }
 
-  private async probeCameraActiveState(): Promise<boolean> {
+  private async probeMediaState(): Promise<{ camera: boolean; mic: boolean }> {
     try {
-      await execFileAsync('sh', ['-c', 'pgrep -xq VDCAssistant 2>/dev/null || pgrep -xq AppleCameraAssistant 2>/dev/null'], {
-        timeout: 1000,
+      const mediaStatePath = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'media-state');
+      const { stdout } = await execFileAsync(mediaStatePath, [], {
+        timeout: 2000,
+        maxBuffer: 256,
       });
-      return true;
+      const parsed = JSON.parse(stdout.trim());
+      const result = {
+        camera: parsed.camera === true,
+        mic: parsed.mic === true,
+      };
+      this.cachedMediaState = { ...result, updatedAt: Date.now() };
+      return result;
     } catch {
-      return false;
+      return { camera: false, mic: false };
     }
   }
 
-  private async probeMicrophoneActiveState(): Promise<boolean> {
-    try {
-      await execFileAsync(
-        'sh',
-        ['-c', 'ioreg -r -c AppleHDAEngineInput 2>/dev/null | grep -q \'"IOAudioEngineState" = 1\''],
-        { timeout: 1000 }
-      );
-      return true;
-    } catch {
-      return false;
-    }
+  async probeCameraActiveState(): Promise<boolean> {
+    const state = await this.probeMediaState();
+    return state.camera;
+  }
+
+  async probeMicrophoneActiveState(): Promise<boolean> {
+    const state = await this.probeMediaState();
+    return state.mic;
   }
 
   private async probeFrontmostAppName(): Promise<string> {
@@ -826,11 +869,11 @@ export class MeetingDetector extends EventEmitter {
   }
 
   private async detectActiveNativeMeetingSignal(): Promise<MeetingSignal | null> {
-    const [micActive, cameraActive, meetingProcesses] = await Promise.all([
-      this.probeMicrophoneActiveState(),
-      this.probeCameraActiveState(),
+    const [mediaState, meetingProcesses] = await Promise.all([
+      this.probeMediaState(),
       this.findRunningMeetingProcesses(),
     ]);
+    const { mic: micActive, camera: cameraActive } = mediaState;
 
     // Mic is the anchor signal — no mic means no native meeting
     if (!micActive) {

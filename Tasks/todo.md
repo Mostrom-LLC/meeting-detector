@@ -84,6 +84,12 @@
 
 Full technical design: [`tasks/signal-detection-hardening.md`](./signal-detection-hardening.md)
 
+## 2026-03-17 README Refresh
+
+- [ ] Review current package metadata, exported API, success criteria, and design docs for documentation drift.
+- [ ] Rewrite `README.md` to reflect the current macOS-focused implementation, public API, CLI usage, known limitations, and the signal-hardening roadmap.
+- [ ] Verify the README against `package.json`, `src/index.ts`, and `/tasks` documentation so it does not overstate shipped behavior.
+
 ## Code Review: c72b073b4d89f46ced1ecf7cea977a9702dc386b
 - [x] Inspect the target commit diff and list touched files / behaviors.
 - [x] Analyze changed meeting-detection logic against adjacent code for regressions.
