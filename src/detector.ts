@@ -113,29 +113,80 @@ function isGoogleMeetMeetingUrl(url: string): boolean {
   return /meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:[/?#]|$)/.test(url);
 }
 
+function parseBrowserUrl(url: string): URL | null {
+  try {
+    return new URL(url);
+  } catch {
+    return null;
+  }
+}
+
 function isZoomMeetingUrl(url: string): boolean {
+  const parsed = parseBrowserUrl(url);
+  if (!parsed) {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (host !== 'zoom.us' && host !== 'app.zoom.us') {
+    return false;
+  }
+
+  const path = parsed.pathname.toLowerCase().replace(/\/+$/, '');
   return (
-    /(?:^https?:\/\/)?app\.zoom\.us\/wc\/\d+\/(?:join|start)(?:[/?#]|$)/.test(url) ||
-    /(?:^https?:\/\/)?(?:app\.)?zoom\.us\/wc\/join\/\d+(?:[/?#]|$)/.test(url) ||
-    /(?:^https?:\/\/)?(?:app\.)?zoom\.us\/j\/\d+(?:[/?#]|$)/.test(url)
+    /^\/wc\/\d+\/(?:join|start)$/.test(path) ||
+    /^\/wc\/join\/\d+$/.test(path) ||
+    /^\/j\/\d+$/.test(path)
   );
 }
 
 function isTeamsMeetingUrl(url: string): boolean {
-  return (
-    url.includes('teams.live.com/light-meetings/launch') ||
-    url.includes('teams.microsoft.com/light-meetings/launch') ||
-    url.includes('teams.microsoft.com/l/meetup-join/') ||
-    (url.includes('teams.microsoft.com/dl/launcher/launcher.html') &&
-      (url.includes('type=meetup-join') || url.includes('%2fl%2fmeetup-join%2f'))) ||
-    url.includes('teams.microsoft.com/meet/') ||
-    url.includes('teams.live.com/meet/') ||
-    url.includes('teams.microsoft.com/v2/?meetingjoin=true')
-  );
+  const parsed = parseBrowserUrl(url);
+  if (!parsed) {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (host !== 'teams.live.com' && host !== 'teams.microsoft.com') {
+    return false;
+  }
+
+  const path = parsed.pathname.toLowerCase().replace(/\/+$/, '');
+  if (path === '/light-meetings' || path === '/light-meetings/launch') {
+    return true;
+  }
+  if (path.startsWith('/l/meetup-join')) {
+    return true;
+  }
+  if (path.startsWith('/meet')) {
+    return true;
+  }
+  if (path === '/dl/launcher/launcher.html') {
+    const launchUrl = decodeURIComponent(parsed.searchParams.get('url') || '').toLowerCase();
+    return parsed.searchParams.get('type') === 'meetup-join' || launchUrl.includes('/l/meetup-join/');
+  }
+  if (path === '/v2') {
+    return parsed.searchParams.get('meetingjoin') === 'true';
+  }
+
+  return false;
 }
 
 function isTeamsMeetingTitle(title: string): boolean {
-  return title.includes('meeting with') && title.includes('microsoft teams');
+  if (!title.includes('microsoft teams')) {
+    return false;
+  }
+
+  if (title.includes('meeting with')) {
+    return true;
+  }
+
+  const segments = title
+    .split('|')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  return segments.length >= 3 && segments[0] === 'meet' && segments.at(-1) === 'microsoft teams';
 }
 
 function isSlackHuddleTab(url: string, title: string): boolean {
@@ -209,6 +260,30 @@ export class MeetingDetector extends EventEmitter {
     'slack',
     'jitsi meet'
   ]);
+
+  private static readonly RECORDER_PROCESSES = new Set([
+    'obs',
+    'obs studio',
+    'obs helper',
+    'screenflow',
+    'camtasia',
+    'loom',
+    'loom helper',
+    'screen recording',
+    'kap',
+    'cleanshot',
+    'cleanshot x',
+    'snagit',
+  ]);
+
+  private static readonly NATIVE_MEETING_PROCESSES: Array<[string[], MeetingPlatform]> = [
+    [['msteams', 'microsoft teams'], 'Microsoft Teams'],
+    [['slack'], 'Slack'],
+    [['zoom.us'], 'Zoom'],
+    [['webex', 'cisco webex'], 'Cisco Webex'],
+    [['discord'], 'Discord'],
+    [['facetime'], 'FaceTime'],
+  ];
 
   private process?: ChildProcess;
   private options: Required<MeetingDetectorOptions>;
@@ -453,6 +528,13 @@ export class MeetingDetector extends EventEmitter {
     try {
       const tabs = await this.listBrowserTabs();
       this.refreshBrowserMeetingHints(tabs);
+
+      // Browser meeting hints are attribution aids only — they help identify the
+      // platform when a TCC signal arrives from a Chrome Helper process. They do
+      // NOT synthesize meeting signals on their own because the media-state probes
+      // (pgrep VDCAssistant, ioreg AppleHDAEngineInput) are unreliable on Apple
+      // Silicon: VDCAssistant runs persistently on Macs with Studio Display cameras
+      // and IOAudioEngineState is absent on Apple Silicon audio drivers.
     } catch (error) {
       if (this.options.debug) {
         console.log('[MeetingDetector] Browser probe error:', error);
@@ -470,8 +552,20 @@ export class MeetingDetector extends EventEmitter {
     this.nativeAppProbeInFlight = true;
     try {
       const signal = await this.detectActiveNativeMeetingSignal();
+      if (!this.isRunning()) {
+        return;
+      }
       if (signal) {
-        this.handleIncomingSignal(signal);
+        // Native probe signals bypass shouldIgnoreSignal() — the probe has already
+        // validated that mic is active and a known meeting process is running.
+        // Going through handleIncomingSignal() would trigger the idle-title filter
+        // which blocks signals with empty/generic window titles from precheck-prone
+        // services, but that filter is designed for TCC log signals, not probe results.
+        this.updateMeetingLifecycle(signal);
+        if (!this.isDuplicateSession(signal)) {
+          const outputSignal = this.sanitizeSignalForOutput(signal);
+          this.emit('meeting', outputSignal);
+        }
       }
     } catch (error) {
       if (this.options.debug) {
@@ -489,7 +583,7 @@ export class MeetingDetector extends EventEmitter {
     for (const [browser, scriptLines] of scripts) {
       try {
         const { stdout } = await execFileAsync('osascript', scriptLines.flatMap(line => ['-e', line]), {
-          timeout: 1500,
+          timeout: 5000,
           maxBuffer: 1024 * 1024,
         });
         for (const row of stdout.split('\n')) {
@@ -538,6 +632,20 @@ export class MeetingDetector extends EventEmitter {
     }
 
     this.browserMeetingHints = nextHints;
+  }
+
+  private pickStrongestBrowserMeetingHint(): BrowserMeetingHint | null {
+    const now = Date.now();
+    let best: BrowserMeetingHint | null = null;
+    for (const hints of this.browserMeetingHints.values()) {
+      for (const hint of hints) {
+        if (now - hint.seenAt > 10000) continue;
+        if (!best || hint.seenAt > best.seenAt) {
+          best = hint;
+        }
+      }
+    }
+    return best;
   }
 
   private inferBrowserHost(signal: Pick<MeetingSignal, 'process' | 'front_app' | 'process_path'>): string | null {
@@ -669,49 +777,107 @@ export class MeetingDetector extends EventEmitter {
     }
   }
 
+  private async findRunningMeetingProcesses(): Promise<Array<{ process: string; platform: MeetingPlatform }>> {
+    try {
+      const { stdout } = await execFileAsync(
+        'ps',
+        ['-axo', 'comm='],
+        { timeout: 1000, maxBuffer: 512 * 1024 }
+      );
+
+      const commands = stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const found = new Map<MeetingPlatform, string>();
+
+      for (const command of commands) {
+        const basename = command.split('/').pop()?.toLowerCase() || '';
+        if (!basename) continue;
+
+        // Skip recorder processes
+        if (MeetingDetector.RECORDER_PROCESSES.has(basename)) continue;
+
+        for (const [patterns, platform] of MeetingDetector.NATIVE_MEETING_PROCESSES) {
+          if (patterns.some((p) => basename.includes(p))) {
+            if (!found.has(platform)) {
+              found.set(platform, command.split('/').pop() || command);
+            }
+            break;
+          }
+        }
+      }
+
+      return Array.from(found.entries()).map(([platform, process]) => ({ process, platform }));
+    } catch {
+      return [];
+    }
+  }
+
+  private hasBrowserHintForPlatform(platform: MeetingPlatform): boolean {
+    const now = Date.now();
+    for (const hints of this.browserMeetingHints.values()) {
+      if (hints.some((hint) => hint.platform === platform && now - hint.seenAt <= 10000)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private async detectActiveNativeMeetingSignal(): Promise<MeetingSignal | null> {
-    const [cameraActive, micActive, frontApp, windowTitle] = await Promise.all([
-      this.probeCameraActiveState(),
+    const [micActive, cameraActive, meetingProcesses] = await Promise.all([
       this.probeMicrophoneActiveState(),
-      this.probeFrontmostAppName(),
-      this.probeFrontWindowTitle(),
+      this.probeCameraActiveState(),
+      this.findRunningMeetingProcesses(),
     ]);
 
-    if (!cameraActive && !micActive) {
+    // Mic is the anchor signal — no mic means no native meeting
+    if (!micActive) {
       return null;
     }
 
-    if (!frontApp || this.inferBrowserHost({ process: frontApp, front_app: frontApp, process_path: '' })) {
+    if (meetingProcesses.length === 0) {
       return null;
     }
 
-    if (this.hasAnyBrowserMeetingHints()) {
+    // Only suppress platforms that have a browser hint for the SAME platform
+    const nativeCandidates = meetingProcesses.filter(
+      (mp) => !this.hasBrowserHintForPlatform(mp.platform)
+    );
+
+    if (nativeCandidates.length === 0) {
       return null;
     }
 
-    const platform = this.transformAppName(frontApp, frontApp, windowTitle, '');
-    if (platform === 'Unknown' || platform === 'Google Meet') {
-      return null;
-    }
-
-    if (!this.looksLikeActiveNativeMeeting(platform, windowTitle, micActive, cameraActive)) {
-      return null;
+    // Pick best candidate; use frontmost app as optional tiebreak
+    let selected = nativeCandidates[0];
+    if (nativeCandidates.length > 1) {
+      const frontApp = await this.probeFrontmostAppName();
+      const frontLower = frontApp.toLowerCase();
+      const frontMatch = nativeCandidates.find(
+        (c) => frontLower.includes(c.process.toLowerCase()) || c.process.toLowerCase().includes(frontLower)
+      );
+      if (frontMatch) {
+        selected = frontMatch;
+      }
     }
 
     return {
       event: 'meeting_signal',
       timestamp: new Date().toISOString().slice(0, 19) + 'Z',
-      service: platform,
+      service: selected.platform,
       verdict: 'allowed',
       preflight: false,
-      process: frontApp,
+      process: selected.process,
       pid: '',
       parent_pid: '',
       process_path: '',
-      front_app: frontApp,
-      window_title: windowTitle,
+      front_app: selected.platform,
+      window_title: '',
       session_id: '',
       camera_active: cameraActive,
+      mic_active: micActive,
       chrome_url: undefined,
     };
   }
@@ -1062,6 +1228,11 @@ export class MeetingDetector extends EventEmitter {
 
     // Filter by process name patterns (partial match)
     if (systemProcessPatterns.some(pattern => processName.includes(pattern))) {
+      return true;
+    }
+
+    // Recorder/screencast processes that use mic/camera but are not meetings
+    if (MeetingDetector.RECORDER_PROCESSES.has(processName)) {
       return true;
     }
 

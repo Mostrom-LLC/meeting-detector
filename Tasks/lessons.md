@@ -236,3 +236,49 @@
 2. **Suppress generic native app windows even when helper processes are noisy**
    - Correction pattern: idle native Teams and Zoom windows with generic titles like `Microsoft Teams` or `Zoom Workplace` still produced false positives through helper-process/TCC churn.
    - Prevention rule: treat generic native app windows as non-meetings by default; only escalate when the media-use gate is satisfied and the native app context is stronger than an idle home/chat surface.
+
+## 2026-03-17: Use The User’s Exact Teams Web URLs Before Generalizing
+
+1. **When the user gives the current live Teams web URL, pivot the regression to that exact surface immediately**
+   - Correction pattern: I started by hardening older Teams join/rewrite URLs while the user’s current live reports were specifically about `https://teams.live.com/v2/`, then the user added `https://teams.microsoft.com/light-meetings` as another real route in use.
+   - Prevention rule: for browser meeting regressions, prioritize the exact current URL(s) the user reports first, add failing tests for those exact routes, and only then broaden adjacent legacy route coverage.
+
+2. **Treat Teams `/v2/` matching as a title-shape problem, not just a route problem**
+   - Correction pattern: `teams.live.com/v2/` is shared by landing, prejoin, and admitted meeting states, so route-only assumptions were too weak and the live title matcher had to stay precise enough to keep `Meet | Microsoft Teams` negative while allowing richer admitted-call titles.
+   - Prevention rule: for Teams `/v2/`, require an admitted-meeting title shape with at least one middle segment between `Meet` and `Microsoft Teams`, and keep explicit regression tests for both live and prejoin titles.
+
+## 2026-03-17: Stop Patch-Chasing When Browser And Native Paths Interfere
+
+1. **When one fix repeatedly regresses another platform path, map the full decision chain before editing again**
+   - Correction pattern: tightening browser heuristics fixed Teams web regressions, but native Teams and Slack still rely on a separate macOS native-app probe and shell/TCC fallback, so patching individual conditions without tracing both paths kept moving the failure around.
+   - Prevention rule: if browser and native meeting detection interact, write down every gate in both paths, identify where each platform can be dropped, and add regression coverage for those exact gates before more implementation changes.
+
+2. **Native Slack and Teams need direct regression coverage, not just generic native-probe smoke tests**
+   - Correction pattern: the suite proved that a mocked Teams native probe could emit once, but it did not cover stale browser hints blocking native apps or Slack’s real native title shapes, so native regressions still shipped.
+   - Prevention rule: keep explicit tests for native Teams and native Slack under realistic interference conditions, especially stale browser hints and non-ideal window titles.
+
+## 2026-03-17: Frontmost App Is Weak Attribution, Not Meeting Evidence
+
+1. **Do not make native meeting detection depend on the frontmost app**
+   - Correction pattern: the user explicitly clarified that real usage can have VS Code, Granola, or another app frontmost while a meeting is still active, so gating native detection on the focused app is fundamentally unreliable.
+   - Prevention rule: for native meeting detection, treat microphone/camera activity as the evidence trigger and use app/window/process context only for platform attribution or false-positive suppression, never as the primary gate.
+
+2. **Model recorder/screencast false positives separately from real meetings**
+   - Correction pattern: the user called out desktop recording, walkthrough videos, and voiceovers as the main non-meeting cases that can also use mic+camera.
+   - Prevention rule: if mic+camera becomes the primary meeting evidence, add explicit suppression rules and regression tests for recording-style apps/workflows instead of falling back to frontmost-app assumptions.
+
+## 2026-03-17: When The User Names The Canonical Plan File, Reconcile It Before Writing
+
+1. **Review the existing design doc before moving or duplicating the plan**
+   - Correction pattern: the user explicitly asked for the plan to live in `tasks/signal-detection-hardening.md`, and that file already contained an older design centered on frontmost-app probing.
+   - Prevention rule: when the user points to a specific existing task/design document, read it first, then update that canonical file so the repo has one authoritative plan instead of conflicting plan copies.
+
+## 2026-03-17: Meeting Detection Should Use Weighted Evidence, Not Single-Signal Gates
+
+1. **Do not treat any one detector signal as definitive**
+   - Correction pattern: the user clarified that reliable meeting detection comes from combining multiple weak signals, with microphone capture as the anchor and process/browser evidence raising confidence, rather than declaring a meeting from one heuristic branch alone.
+   - Prevention rule: design detector logic as a scored evidence model where mic capture, process identity, browser/window titles, camera, and audio output combine into confidence bands instead of acting as isolated hard gates.
+
+2. **Browser title matching is the practical web fallback without an extension**
+   - Correction pattern: the user explicitly noted that tab URLs are not reliably available without an extension, so serious web detection should rely on window-title patterns for the common case and treat an extension/native-messaging bridge as the optional last-10%-accuracy path.
+   - Prevention rule: for browser meeting planning, assume title-based attribution by default and document extension-based enrichment as optional, not as a baseline requirement.

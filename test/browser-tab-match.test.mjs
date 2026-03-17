@@ -18,6 +18,14 @@ test('matches Zoom web meeting tabs', () => {
   }), 'Zoom');
 });
 
+test('matches Zoom root-host web meeting tabs', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Zoom',
+    url: 'https://zoom.us/wc/8716769399/join?pwd=test',
+  }), 'Zoom');
+});
+
 test('matches Microsoft Teams web meeting tabs', () => {
   assert.equal(matchBrowserMeetingTab({
     browser: 'Google Chrome',
@@ -34,6 +42,14 @@ test('matches Microsoft Teams launcher rewrite routes', () => {
   }), 'Microsoft Teams');
 });
 
+test('matches Microsoft Teams launcher rewrite routes with plain meetup paths', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Join conversation',
+    url: 'https://teams.microsoft.com/dl/launcher/launcher.html?url=/l/meetup-join/19%3Ameeting_test&foo=1',
+  }), 'Microsoft Teams');
+});
+
 test('matches Microsoft Teams live consumer meeting routes', () => {
   assert.equal(matchBrowserMeetingTab({
     browser: 'Google Chrome',
@@ -42,10 +58,34 @@ test('matches Microsoft Teams live consumer meeting routes', () => {
   }), 'Microsoft Teams');
 });
 
+test('matches Microsoft Teams light-meetings routes without the launch suffix', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Microsoft Teams meeting | Microsoft Teams',
+    url: 'https://teams.microsoft.com/light-meetings?anon=true',
+  }), 'Microsoft Teams');
+});
+
+test('matches Microsoft Teams v2 meetingjoin routes with extra query params', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Join the meeting now | Microsoft Teams',
+    url: 'https://teams.microsoft.com/v2/?foo=1&meetingjoin=true&bar=2',
+  }), 'Microsoft Teams');
+});
+
 test('matches Microsoft Teams v2 meeting surfaces when the title indicates a live meeting', () => {
   assert.equal(matchBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Meet | Meeting with kaise white | Microsoft Teams',
+    url: 'https://teams.live.com/v2/',
+  }), 'Microsoft Teams');
+});
+
+test('matches Microsoft Teams v2 meeting surfaces with structured live meeting titles', () => {
+  assert.equal(matchBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Meet | Daily Sync | Microsoft Teams',
     url: 'https://teams.live.com/v2/',
   }), 'Microsoft Teams');
 });

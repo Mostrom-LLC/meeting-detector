@@ -37,6 +37,7 @@ export interface MeetingSignal {
   window_title: string;
   session_id: string;
   camera_active: boolean;
+  mic_active?: boolean;
   chrome_url?: string;
 }
 

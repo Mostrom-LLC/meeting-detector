@@ -34,6 +34,7 @@ function getSignalPlatform(signal: MeetingSignal): MeetingPlatform | null {
 export function getCliDetectorOptions(): MeetingDetectorOptions {
   return {
     debug: false,
+    includeRawSignalInLifecycle: true,
   };
 }
 
@@ -52,22 +53,32 @@ export function createCliNotifier(
   return {
     handleMeetingStarted(event: MeetingLifecycleEvent) {
       lastLifecycleAnnouncementAt = now();
-      announce({
+      const payload: Record<string, string> = {
         timestamp: event.timestamp,
         platform: event.platform,
         confidence: event.confidence,
         reason: event.reason,
-      });
+      };
+      if (event.raw_signal) {
+        payload.camera = String(event.raw_signal.camera_active);
+        payload.mic = String(event.raw_signal.mic_active ?? 'unknown');
+      }
+      announce(payload);
     },
 
     handleMeetingChanged(event: MeetingLifecycleEvent) {
       lastLifecycleAnnouncementAt = now();
-      announce({
+      const payload: Record<string, string> = {
         timestamp: event.timestamp,
         platform: event.platform,
         confidence: event.confidence,
         reason: event.reason,
-      });
+      };
+      if (event.raw_signal) {
+        payload.camera = String(event.raw_signal.camera_active);
+        payload.mic = String(event.raw_signal.mic_active ?? 'unknown');
+      }
+      announce(payload);
     },
 
     handleMeetingSignal(signal: MeetingSignal) {
