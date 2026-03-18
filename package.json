@@ -60,11 +60,10 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "puppeteer-core": "^24.39.1",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
   },
-  "dependencies": {},
-  "optionalDependencies": {},
   "os": [
     "darwin",
     "win32",

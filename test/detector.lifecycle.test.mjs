@@ -593,6 +593,7 @@ test('browser meeting tabs alone do not emit lifecycle events without corroborat
   ];
   // No camera/mic active — browser tabs alone should not trigger meetings
   detector.probeCameraActiveState = async () => false;
+  detector.probeMediaState = async () => ({ camera: false, mic: false });
 
   try {
     await new Promise((resolve, reject) => {
@@ -1127,6 +1128,9 @@ test('native Teams probe is NOT suppressed by a Google Meet browser hint', async
     url: 'https://meet.google.com/abc-defg-hij',
   }];
 
+  // Prevent browser probe synthesis from firing (mic=false)
+  detector.probeMediaState = async () => ({ camera: false, mic: false });
+
   detector.detectActiveNativeMeetingSignal = async () => ({
     event: 'meeting_signal',
     timestamp: new Date().toISOString(),
@@ -1184,6 +1188,9 @@ test('native Slack probe is NOT suppressed by a Teams browser hint', async () =>
     title: 'Meet | Daily Sync | Microsoft Teams',
     url: 'https://teams.live.com/v2/?meetingjoin=true',
   }];
+
+  // Prevent browser probe synthesis from firing (mic=false)
+  detector.probeMediaState = async () => ({ camera: false, mic: false });
 
   detector.detectActiveNativeMeetingSignal = async () => ({
     event: 'meeting_signal',
@@ -1282,4 +1289,404 @@ test('does not emit for unresolved browser lobby preflight without joined-state 
 
   assert.equal(result.rawEvents.length, 0);
   assert.equal(result.started.length, 0);
+});
+
+// ——— Edge-Case Criteria: Additional Coverage ———
+
+test('suppresses post-call redirect to landing page after a real meeting ends', async () => {
+  // After a real meeting ends (timeout), the user navigates to the Meet landing
+  // page. The landing page URL (no room code) should NOT start a new meeting.
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Meet',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+        }),
+        sleepMs: 120,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Google Meet',
+          chrome_url: 'https://meet.google.com/',
+        }),
+      },
+    ],
+    {},
+    220,
+    5000
+  );
+
+  // First meeting starts and ends; landing page should not start a second meeting
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Google Meet');
+  assert.equal(result.ended.length, 1);
+});
+
+test('prevents platform flapping when stale ended Meet tab stays open and new Zoom web starts', async () => {
+  // After a Meet meeting ends, a new Zoom meeting starts via browser.
+  // The stale Meet tab should not cause alternation.
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Meet',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+        }),
+        sleepMs: 120,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Zoom',
+          chrome_url: 'https://app.zoom.us/wc/8716769399/join?pwd=test',
+        }),
+      },
+    ],
+    {},
+    220,
+    5000
+  );
+
+  // Meet starts, ends via timeout, Zoom starts — exactly 2 started, no changed to Meet
+  assert.equal(result.started.length, 2);
+  assert.equal(result.started[0].platform, 'Google Meet');
+  assert.equal(result.started[1].platform, 'Zoom');
+  assert.equal(result.ended.length, 2); // Both eventually end (both timed out)
+  assert.equal(result.changed.length, 0); // No platform switching
+});
+
+test('detects audio-only Teams meeting without camera', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: 'Meet | Daily Sync | Microsoft Teams',
+        chrome_url: 'https://teams.live.com/v2/?meetingjoin=true',
+        camera_active: 'false',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Microsoft Teams');
+});
+
+test('detects audio-only Google Meet without camera', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: 'Meet - abc-defg-hij',
+        chrome_url: 'https://meet.google.com/abc-defg-hij',
+        camera_active: 'false',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Google Meet');
+});
+
+test('detects Slack huddle popup with about:blank URL and huddle title', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: 'Slack - Huddle Preview',
+        chrome_url: 'about:blank',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Slack');
+});
+
+test('continues detecting when window_title disappears mid-call', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: 'Meet - abc-defg-hij',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+        }),
+        sleepMs: 30,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: '',
+          chrome_url: 'https://meet.google.com/abc-defg-hij',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  // Meeting should start on first signal and the second signal (missing title but same URL)
+  // should keep the same platform alive, not start a new one
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Google Meet');
+  assert.equal(result.changed.length, 0);
+});
+
+test('suppresses Chrome Helper preflight with empty title and no camera', async () => {
+  // Chrome Helper camera preflight with no window title and no camera active
+  // is correctly suppressed — represents generic browser initialization
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'camera',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: '',
+        chrome_url: '',
+        verdict: 'requested',
+        preflight: 'true',
+        camera_active: 'false',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 0);
+});
+
+test('rejects meet.google.com/landing as a meeting URL', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: 'Google Meet',
+        chrome_url: 'https://meet.google.com/landing?authuser=0',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 0);
+});
+
+test('rejects app.zoom.us/wc/home as a meeting URL', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: 'Zoom Workplace',
+        chrome_url: 'https://app.zoom.us/wc/home?from=pwa',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 0);
+});
+
+test('browser probe synthesis requires TCC mic signal and does not fire on idle meeting tab alone', async () => {
+  // When a meeting tab is open in Chrome but the user hasn't joined,
+  // the browser probe should NOT synthesize a signal
+  const { dir, scriptPath } = createEmitterScript([], 500);
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: false,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  const started = [];
+
+  detector.listBrowserTabs = async () => [
+    {
+      browser: 'Google Chrome',
+      title: 'Meet - abc-defg-hij',
+      url: 'https://meet.google.com/abc-defg-hij',
+    },
+  ];
+  detector.probeMediaState = async () => ({ camera: false, mic: false });
+  detector.detectActiveNativeMeetingSignal = async () => null;
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        detector.stop();
+        reject(new Error('scenario timeout'));
+      }, 2000);
+
+      detector.on('meeting_started', (event) => started.push(event));
+      detector.on('exit', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      detector.start();
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // No TCC mic signal was emitted, so browser probe must not synthesize
+  assert.equal(started.length, 0);
+});
+
+test('suppresses MSTeamsAudioDevice.driver as system audio infrastructure', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'Microsoft Teams',
+        process: 'Core Audio Driver (MSTeamsAudioDevice.driver)',
+        front_app: 'Microsoft Teams',
+        window_title: '',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: 'false',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 0);
+  assert.equal(result.rawEvents.length, 0);
+});
+
+test('suppresses coreaudiod system audio daemon', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'coreaudiod',
+        front_app: 'Google Chrome',
+        window_title: '',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: 'false',
+        process_path: '/usr/sbin/coreaudiod',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 0);
+  assert.equal(result.rawEvents.length, 0);
+});
+
+test('Meet + Teams audio driver do not flap — only Meet survives', async () => {
+  // Regression: MSTeamsAudioDevice.driver fires TCC signals alongside Chrome Helper
+  // when a Google Meet call is active. Only the Chrome Helper signal should produce
+  // a meeting lifecycle event.
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: '',
+          chrome_url: '',
+          camera_active: 'true',
+        }),
+        sleepMs: 20,
+      },
+      {
+        signal: signal({
+          service: 'Microsoft Teams',
+          process: 'Core Audio Driver (MSTeamsAudioDevice.driver)',
+          front_app: 'Microsoft Teams',
+          window_title: '',
+          verdict: 'allowed',
+          preflight: 'false',
+          camera_active: 'false',
+          process_path: '',
+        }),
+        sleepMs: 20,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          front_app: 'Google Chrome',
+          window_title: '',
+          chrome_url: '',
+          camera_active: 'true',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  // Teams audio driver should be filtered — no platform changes
+  assert.equal(result.changed.length, 0);
+});
+
+test('normalizes Teams WebView and MSTeams process to same platform', async () => {
+  const result = await runScenario(
+    [
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Microsoft Teams WebView',
+          front_app: 'MSTeams',
+          window_title: 'Daily Sync | Microsoft Teams',
+          camera_active: 'true',
+        }),
+        sleepMs: 30,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'MSTeams',
+          front_app: 'Microsoft Teams',
+          window_title: 'Daily Sync | Microsoft Teams',
+          camera_active: 'true',
+        }),
+      },
+    ],
+    {},
+    200,
+    4000
+  );
+
+  // Both signals should normalize to the same platform — no meeting_changed
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Microsoft Teams');
+  assert.equal(result.changed.length, 0);
 });

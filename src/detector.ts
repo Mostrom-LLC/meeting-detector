@@ -299,6 +299,8 @@ export class MeetingDetector extends EventEmitter {
   private nativeAppProbeInterval?: NodeJS.Timeout;
   private nativeAppProbeInFlight = false;
   private cachedMediaState: { camera: boolean; mic: boolean; updatedAt: number } = { camera: false, mic: false, updatedAt: 0 };
+  private lastTccMicSignalAt = 0;
+  private lastTccCameraSignalAt = 0;
 
   // Native module support
   private nativeModule: NativeModule | null = null;
@@ -470,14 +472,20 @@ export class MeetingDetector extends EventEmitter {
   }
 
   private handleIncomingSignal(signal: MeetingSignal): void {
-    // Enrich TCC signals with cached media state from the Swift AVCaptureDevice
-    // probe (updated every ~2.5s by browser/native probes). The shell script uses
-    // pgrep VDCAssistant for camera_active which checks daemon existence, not
-    // active capture sessions — override it with the real state.
-    const cacheAgeMs = Date.now() - this.cachedMediaState.updatedAt;
+    // Track TCC signal timestamps — these are the most reliable indicator that
+    // a process has actively requested mic/camera access from macOS.
+    const now = Date.now();
+    this.lastTccMicSignalAt = now;
+    if (signal.camera_active) {
+      this.lastTccCameraSignalAt = now;
+    }
+
+    // Enrich with cached camera state (VDCAssistant proxy) and mark mic as
+    // active since we just received a TCC signal for it.
+    signal.mic_active = true;
+    const cacheAgeMs = now - this.cachedMediaState.updatedAt;
     if (this.cachedMediaState.updatedAt > 0 && cacheAgeMs < 5000) {
       signal.camera_active = this.cachedMediaState.camera;
-      signal.mic_active = this.cachedMediaState.mic;
     }
 
     const stabilizedSignal = this.stabilizeSignalContext(signal);
@@ -541,13 +549,20 @@ export class MeetingDetector extends EventEmitter {
       this.refreshBrowserMeetingHints(tabs);
 
       // Synthesize a meeting signal when a browser meeting tab is open AND
-      // the mic is actively capturing. The mic check uses AVCaptureDevice
-      // .isInUseByAnotherApplication (via the compiled Swift helper) which
-      // reliably detects active capture sessions — not just device presence.
+      // a TCC mic signal was received recently (within 60s). We cannot use
+      // CoreAudio HAL kAudioDevicePropertyDeviceIsRunningSomewhere because
+      // machines with audio interfaces (Elgato WaveLink, Loopback, etc.)
+      // have always-running input devices. TCC signals are the reliable
+      // indicator that an app actually requested mic access from macOS.
       const hint = this.pickStrongestBrowserMeetingHint();
       if (hint) {
-        const mediaState = await this.probeMediaState();
-        if (mediaState.mic && this.isRunning()) {
+        const now = Date.now();
+        const recentTccMic = now - this.lastTccMicSignalAt < 60000;
+        const cameraActive = this.cachedMediaState.updatedAt > 0
+          ? this.cachedMediaState.camera
+          : false;
+
+        if (recentTccMic && this.isRunning()) {
           const syntheticSignal: MeetingSignal = {
             event: 'meeting_signal',
             timestamp: new Date().toISOString().slice(0, 19) + 'Z',
@@ -561,8 +576,8 @@ export class MeetingDetector extends EventEmitter {
             front_app: hint.browser,
             window_title: hint.title,
             session_id: '',
-            camera_active: mediaState.camera,
-            mic_active: mediaState.mic,
+            camera_active: cameraActive,
+            mic_active: true,
             chrome_url: hint.url,
           };
 
@@ -674,16 +689,27 @@ export class MeetingDetector extends EventEmitter {
 
   private pickStrongestBrowserMeetingHint(): BrowserMeetingHint | null {
     const now = Date.now();
-    let best: BrowserMeetingHint | null = null;
+    const fresh: BrowserMeetingHint[] = [];
     for (const hints of this.browserMeetingHints.values()) {
       for (const hint of hints) {
-        if (now - hint.seenAt > 10000) continue;
-        if (!best || hint.seenAt > best.seenAt) {
-          best = hint;
+        if (now - hint.seenAt <= 10000) {
+          fresh.push(hint);
         }
       }
     }
-    return best;
+    if (fresh.length === 0) return null;
+    if (fresh.length === 1) return fresh[0];
+
+    // When multiple meeting tabs are open and there's an active meeting,
+    // prefer the current platform to prevent ping-ponging between platforms.
+    if (this.activeMeeting) {
+      const sameAsActive = fresh.find((h) => h.platform === this.activeMeeting!.platform);
+      if (sameAsActive) return sameAsActive;
+    }
+
+    // No active meeting or active platform not in hints — pick most recent
+    fresh.sort((a, b) => b.seenAt - a.seenAt);
+    return fresh[0];
   }
 
   private inferBrowserHost(signal: Pick<MeetingSignal, 'process' | 'front_app' | 'process_path'>): string | null {
@@ -869,13 +895,16 @@ export class MeetingDetector extends EventEmitter {
   }
 
   private async detectActiveNativeMeetingSignal(): Promise<MeetingSignal | null> {
-    const [mediaState, meetingProcesses] = await Promise.all([
-      this.probeMediaState(),
-      this.findRunningMeetingProcesses(),
-    ]);
-    const { mic: micActive, camera: cameraActive } = mediaState;
+    const meetingProcesses = await this.findRunningMeetingProcesses();
 
-    // Mic is the anchor signal — no mic means no native meeting
+    // Mic gate: require a TCC mic signal within the last 60s. We cannot use
+    // CoreAudio HAL because machines with audio interfaces (Elgato WaveLink,
+    // Loopback, etc.) have always-running input devices that create permanent
+    // false positives. TCC signals are the reliable indicator.
+    const now = Date.now();
+    const micActive = now - this.lastTccMicSignalAt < 60000;
+    const cameraActive = this.cachedMediaState.camera;
+
     if (!micActive) {
       return null;
     }
@@ -1243,6 +1272,9 @@ export class MeetingDetector extends EventEmitter {
       'electron helper',   // Electron helper processes (not meeting-specific)
       'caphost',           // Zoom internal media helper (emitted separately)
       'webview helper',    // Generic WKWebView helper
+      'coreaudiod',        // macOS system audio daemon — routes audio, not a meeting
+      'core audio driver', // Virtual audio device drivers (e.g., MSTeamsAudioDevice.driver)
+      'msteamsaudiodevice',// Teams virtual audio driver fires TCC even without active meeting
     ];
 
     // Services/apps that are too generic or non-meeting
