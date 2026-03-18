@@ -489,19 +489,9 @@ export class MeetingDetector extends EventEmitter {
     }
 
     const stabilizedSignal = this.stabilizeSignalContext(signal);
-
-    // Temporary diagnostic: log every signal that passes through shouldIgnoreSignal
-    if (this.options.debug) {
-      console.log(`[DIAG] raw process=${signal.process} | service=${signal.service} | front_app=${signal.front_app} | pid=${signal.pid} | verdict=${signal.verdict}`);
-    }
-
     if (this.shouldIgnoreSignal(stabilizedSignal)) {
       this.logSignalDebug('Ignoring signal', stabilizedSignal);
       return;
-    }
-
-    if (this.options.debug) {
-      console.log(`[DIAG] ACCEPTED process=${stabilizedSignal.process} | service=${stabilizedSignal.service} | front_app=${stabilizedSignal.front_app}`);
     }
 
     const confidentSignal = this.resolveConfidence(stabilizedSignal);
@@ -923,10 +913,22 @@ export class MeetingDetector extends EventEmitter {
       return null;
     }
 
-    // Only suppress platforms that have a browser hint for the SAME platform
-    const nativeCandidates = meetingProcesses.filter(
-      (mp) => !this.hasBrowserHintForPlatform(mp.platform)
-    );
+    // Suppress platforms that have a browser hint for the SAME platform (browser
+    // detection handles those) and platforms that would conflict with an already-
+    // active meeting on a different platform. An idle Teams process running while
+    // a Meet call is active should NOT produce a Teams signal.
+    const nativeCandidates = meetingProcesses.filter((mp) => {
+      // Same-platform browser hint exists — let browser detection handle it
+      if (this.hasBrowserHintForPlatform(mp.platform)) {
+        return false;
+      }
+      // If there's an active meeting on a DIFFERENT platform, suppress this
+      // candidate unless it is the frontmost app (indicating the user switched).
+      if (this.activeMeeting && this.activeMeeting.platform !== mp.platform) {
+        return false;
+      }
+      return true;
+    });
 
     if (nativeCandidates.length === 0) {
       return null;
