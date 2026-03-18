@@ -367,7 +367,8 @@ test('accepts Google Meet browser routes even when the tab title is only Meet', 
       {
         signal: signal({
           service: 'Google Meet',
-          process: 'Google Chrome',
+          process: 'Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
           front_app: 'Google Chrome',
           verdict: 'requested',
           preflight: 'false',
@@ -1605,21 +1606,26 @@ test('suppresses coreaudiod system audio daemon', async () => {
   assert.equal(result.rawEvents.length, 0);
 });
 
-test('Meet + Teams audio driver do not flap — only Meet survives', async () => {
-  // Regression: MSTeamsAudioDevice.driver fires TCC signals alongside Chrome Helper
-  // when a Google Meet call is active. Only the Chrome Helper signal should produce
-  // a meeting lifecycle event.
+test('Meet + Teams audio driver + coreaudiod + main Chrome do not flap (live regression)', async () => {
+  // Regression from live NDJSON: all four noise sources fire alongside Chrome Helper
+  // during a real Google Meet call. Only Chrome Helper should produce lifecycle events.
+  // Exact processes from /tmp/meeting-detector-live/meet-web-live.ndjson:
+  //   1. Google Chrome Helper (pid 85823) — REAL signal
+  //   2. Core Audio Driver (MSTeamsAudioDevice.driver) — Teams virtual audio device
+  //   3. coreaudiod (pid 594) — macOS system audio daemon
+  //   4. Google Chrome (no pid) — main browser process, not media renderer
   const result = await runScenario(
     [
       {
         signal: signal({
           service: 'microphone',
           process: 'Google Chrome Helper',
-          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/145.0.7632.160/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
           front_app: 'Google Chrome',
           window_title: '',
           chrome_url: '',
           camera_active: 'true',
+          pid: '85823',
         }),
         sleepMs: 20,
       },
@@ -1633,6 +1639,35 @@ test('Meet + Teams audio driver do not flap — only Meet survives', async () =>
           preflight: 'false',
           camera_active: 'false',
           process_path: '',
+          pid: '',
+        }),
+        sleepMs: 20,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'coreaudiod',
+          process_path: '/usr/sbin/coreaudiod',
+          front_app: 'Google Chrome',
+          window_title: '',
+          verdict: 'allowed',
+          preflight: 'false',
+          camera_active: 'true',
+          pid: '594',
+        }),
+        sleepMs: 20,
+      },
+      {
+        signal: signal({
+          service: 'microphone',
+          process: 'Google Chrome',
+          process_path: '',
+          front_app: 'Google Chrome',
+          window_title: '',
+          verdict: 'allowed',
+          preflight: 'false',
+          camera_active: 'false',
+          pid: '',
         }),
         sleepMs: 20,
       },
@@ -1640,11 +1675,12 @@ test('Meet + Teams audio driver do not flap — only Meet survives', async () =>
         signal: signal({
           service: 'microphone',
           process: 'Google Chrome Helper',
-          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+          process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/145.0.7632.160/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
           front_app: 'Google Chrome',
           window_title: '',
           chrome_url: '',
           camera_active: 'true',
+          pid: '85823',
         }),
       },
     ],
@@ -1653,8 +1689,46 @@ test('Meet + Teams audio driver do not flap — only Meet survives', async () =>
     4000
   );
 
-  // Teams audio driver should be filtered — no platform changes
+  // All three noise sources (audio driver, coreaudiod, main Chrome) should be filtered.
+  // Only Chrome Helper signals should produce events — no platform changes.
   assert.equal(result.changed.length, 0);
+});
+
+test('main Google Chrome process is blocked but Google Chrome Helper is allowed', async () => {
+  // The main Chrome process fires TCC signals for generic reasons (initial permission
+  // grants, etc.), not for active meeting media. Only Chrome Helper handles media.
+  const blockedResult = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome',
+        front_app: 'Google Chrome',
+        window_title: '',
+        chrome_url: '',
+        camera_active: 'false',
+        process_path: '',
+        pid: '',
+      }),
+    },
+  ]);
+  assert.equal(blockedResult.started.length, 0, 'Main Chrome process should be blocked');
+
+  const allowedResult = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Google Chrome Helper',
+        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: 'Meet - abc-defg-hij',
+        chrome_url: 'https://meet.google.com/abc-defg-hij',
+        camera_active: 'true',
+        pid: '85823',
+      }),
+    },
+  ]);
+  assert.equal(allowedResult.started.length, 1, 'Chrome Helper should be allowed');
+  assert.equal(allowedResult.started[0].platform, 'Google Meet');
 });
 
 test('normalizes Teams WebView and MSTeams process to same platform', async () => {

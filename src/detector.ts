@@ -489,9 +489,19 @@ export class MeetingDetector extends EventEmitter {
     }
 
     const stabilizedSignal = this.stabilizeSignalContext(signal);
+
+    // Temporary diagnostic: log every signal that passes through shouldIgnoreSignal
+    if (this.options.debug) {
+      console.log(`[DIAG] raw process=${signal.process} | service=${signal.service} | front_app=${signal.front_app} | pid=${signal.pid} | verdict=${signal.verdict}`);
+    }
+
     if (this.shouldIgnoreSignal(stabilizedSignal)) {
       this.logSignalDebug('Ignoring signal', stabilizedSignal);
       return;
+    }
+
+    if (this.options.debug) {
+      console.log(`[DIAG] ACCEPTED process=${stabilizedSignal.process} | service=${stabilizedSignal.service} | front_app=${stabilizedSignal.front_app}`);
     }
 
     const confidentSignal = this.resolveConfidence(stabilizedSignal);
@@ -1308,6 +1318,18 @@ export class MeetingDetector extends EventEmitter {
 
     // Recorder/screencast processes that use mic/camera but are not meetings
     if (MeetingDetector.RECORDER_PROCESSES.has(processName)) {
+      return true;
+    }
+
+    // Block main browser processes — actual media signals come from Helper/Renderer
+    // subprocesses (e.g., "Google Chrome Helper"). The main browser process makes TCC
+    // requests for generic reasons (e.g., initial permission grant), not for active calls.
+    // Must be exact-match to avoid blocking "Google Chrome Helper".
+    const mainBrowserProcesses = new Set([
+      'google chrome', 'safari', 'microsoft edge', 'firefox',
+      'brave browser', 'arc', 'opera', 'vivaldi',
+    ]);
+    if (mainBrowserProcesses.has(processName)) {
       return true;
     }
 
