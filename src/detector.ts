@@ -18,6 +18,8 @@ import {
   type NativeDetector,
   isNativePlatformSupported,
 } from './native-bridge.js';
+import { NativeDetectorEngine, WebDetectorEngine, type MeetingCandidate } from './engines/index.js';
+import { MeetingArbitrator } from './arbitration/index.js';
 
 interface SessionInfo {
   lastSeen: number;
@@ -308,6 +310,13 @@ export class MeetingDetector extends EventEmitter {
   private nativePollingInterval?: NodeJS.Timeout;
   private useNative: boolean = false;
 
+  // Refactored engine support (Phase 4)
+  private nativeEngine: NativeDetectorEngine | null = null;
+  private webEngine: WebDetectorEngine | null = null;
+  private arbitrator: MeetingArbitrator | null = null;
+  private arbitratorMeetingEndTimer?: NodeJS.Timeout;
+  private useRefactoredEngines: boolean = false;
+
   constructor(options: MeetingDetectorOptions = {}) {
     super();
 
@@ -357,6 +366,111 @@ export class MeetingDetector extends EventEmitter {
     } else if (this.options.debug) {
       console.log('[MeetingDetector] Native module not available, using shell script fallback');
     }
+
+    // Initialize refactored engines and arbitrator (Phase 4)
+    this.initializeRefactoredEngines();
+  }
+
+  /**
+   * Initialize the refactored native/web engines and arbitrator.
+   * This provides a cleaner separation of concerns for meeting detection.
+   */
+  private initializeRefactoredEngines(): void {
+    // Create native detector engine
+    this.nativeEngine = new NativeDetectorEngine({
+      debug: this.options.debug,
+      emitUnknown: this.options.emitUnknown,
+      includeSensitiveMetadata: this.options.includeSensitiveMetadata,
+    });
+
+    // Create web detector engine
+    this.webEngine = new WebDetectorEngine({
+      debug: this.options.debug,
+      emitUnknown: this.options.emitUnknown,
+      includeSensitiveMetadata: this.options.includeSensitiveMetadata,
+    });
+
+    // Create arbitrator
+    this.arbitrator = new MeetingArbitrator({
+      debug: this.options.debug,
+      meetingEndTimeoutMs: this.options.meetingEndTimeoutMs,
+    });
+
+    // Wire engine candidates to arbitrator
+    const handleCandidate = (candidate: MeetingCandidate) => {
+      if (!this.arbitrator) return;
+      
+      const result = this.arbitrator.processCandidate(candidate);
+      
+      if (result.event) {
+        // Emit lifecycle event
+        this.emit(result.event.event, result.event);
+        this.emit('meeting_lifecycle', result.event);
+        
+        // Update web engine with active platform for hint selection
+        if (result.event.event === 'meeting_started' || result.event.event === 'meeting_changed') {
+          this.webEngine?.setActiveMeetingPlatform(result.event.platform);
+        } else if (result.event.event === 'meeting_ended') {
+          this.webEngine?.setActiveMeetingPlatform(null);
+        }
+      }
+    };
+
+    this.nativeEngine.onCandidate(handleCandidate);
+    this.webEngine.onCandidate(handleCandidate);
+
+    // Wire arbitrator lifecycle events
+    this.arbitrator.onLifecycleEvent((event) => {
+      // Events are also emitted in handleCandidate, but the arbitrator
+      // can emit events independently (e.g., timeout-based meeting_ended)
+      // We handle those here if not already emitted
+      if (event.reason === 'timeout' || event.reason === 'stop') {
+        this.emit(event.event, event);
+        this.emit('meeting_lifecycle', event);
+        
+        if (event.event === 'meeting_ended') {
+          this.webEngine?.setActiveMeetingPlatform(null);
+        }
+      }
+    });
+
+    // Enable refactored engines by default on macOS
+    this.useRefactoredEngines = process.platform === 'darwin';
+
+    if (this.options.debug) {
+      console.log('[MeetingDetector] Refactored engines initialized, enabled:', this.useRefactoredEngines);
+    }
+  }
+
+  /**
+   * Start the arbitrator meeting end check timer.
+   * This periodically checks if the active meeting has timed out.
+   */
+  private startArbitratorMeetingEndCheck(): void {
+    if (this.arbitratorMeetingEndTimer) {
+      clearInterval(this.arbitratorMeetingEndTimer);
+    }
+
+    this.arbitratorMeetingEndTimer = setInterval(() => {
+      if (!this.arbitrator) return;
+      const endEvent = this.arbitrator.checkMeetingEnd();
+      if (endEvent) {
+        this.emit(endEvent.event, endEvent);
+        this.emit('meeting_lifecycle', endEvent);
+        this.webEngine?.setActiveMeetingPlatform(null);
+      }
+    }, 1000);
+    this.arbitratorMeetingEndTimer.unref?.();
+  }
+
+  /**
+   * Stop the arbitrator meeting end check timer.
+   */
+  private stopArbitratorMeetingEndCheck(): void {
+    if (this.arbitratorMeetingEndTimer) {
+      clearInterval(this.arbitratorMeetingEndTimer);
+      this.arbitratorMeetingEndTimer = undefined;
+    }
   }
 
   /**
@@ -378,6 +492,12 @@ export class MeetingDetector extends EventEmitter {
       return;
     }
 
+    // Start refactored engines if enabled
+    if (this.useRefactoredEngines) {
+      this.nativeEngine?.start();
+      this.webEngine?.start();
+    }
+
     // Fall back to shell script detection
     this.process = spawn('sh', [this.options.scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe']
@@ -391,6 +511,11 @@ export class MeetingDetector extends EventEmitter {
     if (process.platform === 'darwin') {
       this.startBrowserTabProbe();
       this.startNativeAppProbe();
+    }
+
+    // Start arbitrator meeting end check timer
+    if (this.useRefactoredEngines && this.arbitrator) {
+      this.startArbitratorMeetingEndCheck();
     }
 
     let stderrBuffer = '';
@@ -488,6 +613,20 @@ export class MeetingDetector extends EventEmitter {
       signal.camera_active = this.cachedMediaState.camera;
     }
 
+    // Feed signal to refactored native engine (Phase 4 integration)
+    if (this.useRefactoredEngines && this.nativeEngine?.isRunning()) {
+      this.nativeEngine.injectTccSignal({
+        process: signal.process,
+        processPath: signal.process_path,
+        windowTitle: signal.window_title,
+        micActive: signal.mic_active ?? false,
+        cameraActive: signal.camera_active ?? false,
+        verdict: signal.verdict as 'requested' | 'allowed' | 'denied' | '' | undefined,
+        preflight: signal.preflight,
+        timestamp: now,
+      });
+    }
+
     const stabilizedSignal = this.stabilizeSignalContext(signal);
     if (this.shouldIgnoreSignal(stabilizedSignal)) {
       this.logSignalDebug('Ignoring signal', stabilizedSignal);
@@ -548,6 +687,30 @@ export class MeetingDetector extends EventEmitter {
       const tabs = await this.listBrowserTabs();
       this.refreshBrowserMeetingHints(tabs);
 
+      const now = Date.now();
+      const recentTccMic = now - this.lastTccMicSignalAt < 60000;
+      const cameraActive = this.cachedMediaState.updatedAt > 0
+        ? this.cachedMediaState.camera
+        : false;
+
+      // Feed tabs to refactored web engine (Phase 4 integration)
+      if (this.useRefactoredEngines && this.webEngine?.isRunning()) {
+        for (const tab of tabs) {
+          // Only inject tabs that look like meeting URLs
+          const platform = matchBrowserMeetingTab(tab);
+          if (platform) {
+            this.webEngine.injectBrowserTab({
+              browser: tab.browser,
+              url: tab.url,
+              title: tab.title,
+              micActive: recentTccMic,
+              cameraActive,
+              timestamp: now,
+            });
+          }
+        }
+      }
+
       // Synthesize a meeting signal when a browser meeting tab is open AND
       // a TCC mic signal was received recently (within 60s). We cannot use
       // CoreAudio HAL kAudioDevicePropertyDeviceIsRunningSomewhere because
@@ -556,12 +719,6 @@ export class MeetingDetector extends EventEmitter {
       // indicator that an app actually requested mic access from macOS.
       const hint = this.pickStrongestBrowserMeetingHint();
       if (hint) {
-        const now = Date.now();
-        const recentTccMic = now - this.lastTccMicSignalAt < 60000;
-        const cameraActive = this.cachedMediaState.updatedAt > 0
-          ? this.cachedMediaState.camera
-          : false;
-
         if (recentTccMic && this.isRunning()) {
           const syntheticSignal: MeetingSignal = {
             event: 'meeting_signal',
@@ -1165,6 +1322,17 @@ export class MeetingDetector extends EventEmitter {
       }
     }
 
+    // Stop refactored engines and arbitrator (Phase 4)
+    if (this.useRefactoredEngines) {
+      this.stopArbitratorMeetingEndCheck();
+      this.nativeEngine?.stop();
+      this.webEngine?.stop();
+      const arbitratorEndEvent = this.arbitrator?.stop();
+      if (arbitratorEndEvent) {
+        // Lifecycle events from arbitrator.stop() are emitted via the callback
+      }
+    }
+
     // Stop shell script detection
     if (this.process) {
       this.process.kill('SIGTERM');
@@ -1195,7 +1363,7 @@ export class MeetingDetector extends EventEmitter {
    * Check if the detector is currently running
    */
   public isRunning(): boolean {
-    return !!this.process || !!this.nativePollingInterval || !!this.browserProbeInterval || !!this.nativeAppProbeInterval;
+    return !!this.process || !!this.nativePollingInterval || !!this.browserProbeInterval || !!this.nativeAppProbeInterval || (this.useRefactoredEngines && !!(this.nativeEngine?.isRunning() || this.webEngine?.isRunning()));
   }
 
   /**
@@ -1203,6 +1371,28 @@ export class MeetingDetector extends EventEmitter {
    */
   public isUsingNative(): boolean {
     return this.useNative && !!this.nativePollingInterval;
+  }
+
+  /**
+   * Check if the refactored engines are being used.
+   */
+  public isUsingRefactoredEngines(): boolean {
+    return this.useRefactoredEngines;
+  }
+
+  /**
+   * Get the arbitration state (for testing/debugging).
+   */
+  public getArbitrationState(): { activeMeeting: { platform: string; confidence: string; source: string } | null } | null {
+    if (!this.arbitrator) return null;
+    const state = this.arbitrator.getState();
+    return {
+      activeMeeting: state.activeMeeting ? {
+        platform: state.activeMeeting.platform,
+        confidence: state.activeMeeting.confidence,
+        source: state.activeMeeting.source,
+      } : null,
+    };
   }
 
   /**
