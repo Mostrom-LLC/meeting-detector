@@ -44,6 +44,7 @@ pub struct NativeMeetingDetector {
     #[allow(dead_code)]
     config: detector::DetectorConfig,
     state_machine: Arc<Mutex<detector::DetectorStateMachine>>,
+    platform_detector: Arc<Mutex<Option<Box<dyn platform::PlatformDetector>>>>,
     running: Arc<Mutex<bool>>,
 }
 
@@ -55,10 +56,12 @@ impl NativeMeetingDetector {
         let config: detector::DetectorConfig = options.unwrap_or_default().into();
 
         let state_machine = detector::DetectorStateMachine::new(config.clone());
+        let platform_det = platform::create_platform_detector().ok();
 
         Self {
             config,
             state_machine: Arc::new(Mutex::new(state_machine)),
+            platform_detector: Arc::new(Mutex::new(platform_det)),
             running: Arc::new(Mutex::new(false)),
         }
     }
@@ -124,6 +127,18 @@ impl NativeMeetingDetector {
             target_os = "windows",
             target_os = "linux"
         ))
+    }
+
+    /// Poll for a new meeting signal from the platform detector.
+    /// Returns null if no signal is available.
+    #[napi]
+    pub fn detect(&self) -> Option<MeetingSignal> {
+        let det = self.platform_detector.lock().unwrap();
+        if let Some(ref detector) = *det {
+            detector.detect().ok().flatten()
+        } else {
+            None
+        }
     }
 
     /// Process a signal (for testing or manual signal injection).

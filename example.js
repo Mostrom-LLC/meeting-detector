@@ -1,81 +1,30 @@
-// Simple Node.js example without TypeScript (works with just node)
-const { spawn } = require('child_process');
+// Example: using @mostrom/meeting-detector with the native Rust backend
+import { MeetingDetector } from './dist/index.js';
 
-class SimpleMeetingDetector {
-  constructor() {
-    this.process = null;
-  }
+const detector = new MeetingDetector({ debug: true });
 
-  start(callback) {
-    if (this.process) {
-      throw new Error('Detector is already running');
-    }
+detector.onMeetingStarted((event) => {
+  console.log('Meeting started:', event.platform, event.confidence);
+});
 
-    console.log('🔍 Starting meeting detector...');
-    
-    this.process = spawn('sh', ['./meeting-detect.sh'], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
+detector.onMeetingEnded((event) => {
+  console.log('Meeting ended:', event.platform);
+});
 
-    this.process.stdout.on('data', (data) => {
-      const lines = data.toString().trim().split('\n');
-      
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const signal = JSON.parse(line);
-            // Convert camera_active string to boolean
-            signal.camera_active = signal.camera_active === 'true';
-            callback(signal);
-          } catch (error) {
-            console.error('Failed to parse signal:', line);
-          }
-        }
-      }
-    });
-
-    this.process.stderr.on('data', (data) => {
-      console.log('stderr:', data.toString());
-    });
-
-    this.process.on('error', (error) => {
-      console.error('Process error:', error);
-    });
-
-    this.process.on('exit', (code) => {
-      console.log(`Process exited with code ${code}`);
-      this.process = null;
-    });
-  }
-
-  stop() {
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = null;
-      console.log('⏹️  Stopped monitoring');
-    }
-  }
-}
-
-// Usage example
-const detector = new SimpleMeetingDetector();
-
-detector.start((stateChange) => {
-  console.log('📱 Meeting signal:', {
-    app: stateChange.process,
-    service: stateChange.service, 
-    pid: stateChange.pid,
-    front_app: stateChange.front_app,
-    camera_active: stateChange.camera_active,
-    timestamp: stateChange.timestamp
+detector.onMeeting((signal) => {
+  console.log('Meeting signal:', {
+    service: signal.service,
+    process: signal.process,
+    camera_active: signal.camera_active,
+    timestamp: signal.timestamp,
   });
 });
 
+detector.start();
+
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('\n⏹️  Shutting down...');
+  console.log('\nShutting down...');
   detector.stop();
   process.exit(0);
 });
-
-module.exports = { SimpleMeetingDetector };

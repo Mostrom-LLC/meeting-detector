@@ -1,4 +1,4 @@
-import { spawn, execFile, ChildProcess } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -157,7 +157,6 @@ export class MeetingDetector extends EventEmitter {
     'snagit',
   ]);
 
-  private process?: ChildProcess;
   private options: Required<MeetingDetectorOptions>;
   private activeSessions: Map<string, SessionInfo> = new Map();
   private pendingConfidence: Map<string, PendingConfidenceSignal> = new Map();
@@ -183,14 +182,8 @@ export class MeetingDetector extends EventEmitter {
   constructor(options: MeetingDetectorOptions = {}) {
     super();
 
-    // Get the absolute path to the script relative to this package
-    const defaultScriptPath = options.scriptPath || join(
-      dirname(fileURLToPath(import.meta.url)),
-      '../meeting-detect.sh'
-    );
-
     this.options = {
-      scriptPath: defaultScriptPath,
+      scriptPath: '',
       debug: options.debug || false,
       sessionDeduplicationMs: options.sessionDeduplicationMs || 60000,
       meetingEndTimeoutMs: options.meetingEndTimeoutMs || 30000,
@@ -213,10 +206,7 @@ export class MeetingDetector extends EventEmitter {
           includeRawSignalInLifecycle: this.options.includeRawSignalInLifecycle,
           startupProbe: this.options.startupProbe,
         });
-        // On macOS the Rust module does not generate signals itself and its state machine
-        // currently lacks parity with the JS browser/service heuristics. Keep the shell+JS
-        // pipeline as the default there so browser and native app signals behave consistently.
-        this.useNative = process.platform !== 'darwin' && this.nativeDetector.isSupported();
+        this.useNative = this.nativeDetector.isSupported();
         if (this.options.debug) {
           console.log(`[MeetingDetector] Native module loaded, platform: ${this.nativeDetector.platformName()}, supported: ${this.useNative}`);
         }
@@ -236,7 +226,7 @@ export class MeetingDetector extends EventEmitter {
    * @param callback Optional callback function for meeting events
    */
   public start(callback?: MeetingEventCallback): void {
-    if (this.process || this.nativePollingInterval) {
+    if (this.nativePollingInterval) {
       throw new Error('Detector is already running');
     }
 
@@ -244,112 +234,11 @@ export class MeetingDetector extends EventEmitter {
       this.on('meeting', callback);
     }
 
-    // Use native detection if available
-    if (this.useNative && this.nativeDetector) {
-      this.startNativeDetection();
-      return;
+    if (!this.useNative || !this.nativeDetector) {
+      throw new Error('Native detector not available — native module is required on all platforms');
     }
 
-    // Fall back to shell script detection
-    this.process = spawn('sh', [this.options.scriptPath], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    // Probe for an already-active meeting so detectors that start mid-call emit immediately.
-    if (this.options.startupProbe) {
-      this.probeActiveMeetingAtStartup();
-    }
-
-    if (process.platform === 'darwin') {
-      this.startBrowserTabProbe();
-      this.startNativeAppProbe();
-    }
-
-    let stderrBuffer = '';
-
-    this.process.stdout?.on('data', (data: Buffer) => {
-      const lines = data.toString().trim().split('\n');
-
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const parsedSignal = this.parseSignal(line);
-            this.handleIncomingSignal(parsedSignal);
-          } catch (error) {
-            if (this.options.debug) {
-              console.log('[MeetingDetector] Failed to parse line:', line);
-            }
-            this.emit('error', new Error(`Failed to parse signal: ${line}`));
-          }
-        }
-      }
-    });
-
-    this.process.stderr?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      stderrBuffer += text;
-      if (this.options.debug) {
-        console.log('[MeetingDetector] stderr:', text);
-      }
-    });
-
-    this.process.on('error', (error) => {
-      this.emit('error', error);
-    });
-
-    this.process.on('exit', (code, signal) => {
-      if (this.options.debug) {
-        console.log(`[MeetingDetector] Process exited with code ${code}, signal ${signal}`);
-      }
-      // Detect permission errors: log stream exits immediately with non-zero code and
-      // a relevant message when macOS privacy access has not been granted.
-      if (code !== 0 && code !== null && !signal) {
-        const stderr = stderrBuffer.toLowerCase();
-        if (
-          stderr.includes('not allowed') ||
-          stderr.includes('authorization') ||
-          stderr.includes('permission denied') ||
-          stderr.includes('operation not permitted')
-        ) {
-          this.emit('error', new Error(
-            'Meeting detector failed to access macOS privacy logs (exit code ' + code + '). ' +
-            'Grant Full Disk Access or Automation permissions in System Settings > Privacy & Security.'
-          ));
-        }
-      }
-      if (this.meetingEndTimer) {
-        clearTimeout(this.meetingEndTimer);
-        this.meetingEndTimer = undefined;
-      }
-      if (this.activeMeeting) {
-        const endedTimeline = endSessionTimeline(this.activeMeeting.timeline);
-        this.emitMeetingLifecycle(
-          'meeting_ended',
-          this.activeMeeting.platform,
-          this.activeMeeting.confidence,
-          'stop',
-          this.activeMeeting.signal,
-          undefined,
-          endedTimeline
-        );
-        this.activeMeeting = null;
-      }
-      if (this.browserProbeInterval) {
-        clearInterval(this.browserProbeInterval);
-        this.browserProbeInterval = undefined;
-      }
-      if (this.nativeAppProbeInterval) {
-        clearInterval(this.nativeAppProbeInterval);
-        this.nativeAppProbeInterval = undefined;
-      }
-      this.browserMeetingHints.clear();
-      this.process = undefined;
-      this.emit('exit', { code, signal });
-    });
-
-    if (this.options.debug) {
-      console.log('[MeetingDetector] Started monitoring');
-    }
+    this.startNativeDetection();
   }
 
   private handleIncomingSignal(signal: MeetingSignal): void {
@@ -900,10 +789,8 @@ export class MeetingDetector extends EventEmitter {
 
   /**
    * Start native detection using Rust native module.
-   * 
-   * Note: Currently the native module provides state machine processing but
-   * signal generation still uses shell scripts on macOS. On Linux, native
-   * detection uses procfs and X11 directly.
+   * The native module handles TCC log streaming, signal generation,
+   * and state machine processing on all supported platforms.
    */
   private startNativeDetection(): void {
     if (!this.nativeDetector) {
@@ -916,93 +803,48 @@ export class MeetingDetector extends EventEmitter {
 
     this.nativeDetector.start();
 
-    // For now, on macOS we still use shell script for signal generation
-    // but process signals through native state machine
     if (process.platform === 'darwin') {
-      this.startShellScriptWithNativeProcessing();
-      return;
+      this.startBrowserTabProbe();
+      this.startNativeAppProbe();
     }
 
-    // On Linux/Windows, the native detector can poll directly
-    // TODO: Implement native polling loop using PlatformDetector
-    // For now, fall back to shell script approach
-    this.startShellScriptWithNativeProcessing();
-  }
+    // Probe for an already-active meeting so detectors that start mid-call emit immediately.
+    if (this.options.startupProbe) {
+      this.probeActiveMeetingAtStartup();
+    }
 
-  /**
-   * Start shell script signal generation with native state machine processing.
-   */
-  private startShellScriptWithNativeProcessing(): void {
-    this.process = spawn('sh', [this.options.scriptPath], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    let stderrBuffer = '';
-
-    this.process.stdout?.on('data', (data: Buffer) => {
-      const lines = data.toString().trim().split('\n');
-
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const parsedSignal = this.parseSignal(line);
-            const signal = this.stabilizeSignalContext(parsedSignal);
-            
-            if (this.shouldIgnoreSignal(signal)) {
-              this.logSignalDebug('Ignoring signal', signal);
-              continue;
-            }
-
-            // Use native state machine for processing
-            if (this.nativeDetector) {
-              const events = this.nativeDetector.processSignal(signal);
-              for (const event of events) {
-                this.emitNativeLifecycleEvent(event);
-              }
-            }
-
-            // Emit raw signal for backward compatibility
-            const outputSignal = this.sanitizeSignalForOutput(signal);
-            this.emit('meeting', outputSignal);
-          } catch (e) {
-            if (this.options.debug) {
-              console.error('[MeetingDetector] Parse error:', e);
-            }
-          }
-        }
-      }
-    });
-
-    this.process.stderr?.on('data', (data: Buffer) => {
-      stderrBuffer += data.toString();
-      if (this.options.debug) {
-        console.error('[MeetingDetector stderr]:', data.toString());
-      }
-    });
-
-    this.process.on('close', (code) => {
-      if (this.options.debug) {
-        console.log(`[MeetingDetector] Shell script exited with code ${code}`);
-      }
-      if (code !== 0 && stderrBuffer) {
-        this.emit('error', new Error(`Script error: ${stderrBuffer}`));
-      }
-      this.process = undefined;
-    });
-
-    // Set up meeting end check timer
+    // Poll the native detector for signals
     this.nativePollingInterval = setInterval(() => {
       if (!this.nativeDetector) return;
+
+      // Check for new signals from the native detector
+      const signal = this.nativeDetector.detect();
+      if (signal) {
+        this.handleIncomingSignal(signal);
+
+        // Also feed through native state machine for lifecycle events
+        const events = this.nativeDetector.processSignal(signal);
+        for (const event of events) {
+          this.emitNativeLifecycleEvent(event);
+        }
+      }
+
+      // Check for meeting end via timeout
       const endEvent = this.nativeDetector.checkMeetingEnd();
       if (endEvent) {
         this.emitNativeLifecycleEvent(endEvent);
       }
-    }, 1000);
+    }, 500);
 
     // Periodic session cleanup
-    setInterval(() => {
+    const cleanupInterval = setInterval(() => {
       this.nativeDetector?.cleanupSessions();
     }, 60000);
+    cleanupInterval.unref?.();
+
+    if (this.options.debug) {
+      console.log('[MeetingDetector] Started monitoring');
+    }
   }
 
   /**
@@ -1028,7 +870,6 @@ export class MeetingDetector extends EventEmitter {
    * Stop monitoring
    */
   public stop(): void {
-    // Stop native detection
     if (this.nativePollingInterval) {
       clearInterval(this.nativePollingInterval);
       this.nativePollingInterval = undefined;
@@ -1048,35 +889,28 @@ export class MeetingDetector extends EventEmitter {
       }
     }
 
-    // Stop shell script detection
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = undefined;
-
-      if (this.meetingEndTimer) {
-        clearTimeout(this.meetingEndTimer);
-        this.meetingEndTimer = undefined;
-      }
-      if (this.activeMeeting) {
-        const endedTimeline = endSessionTimeline(this.activeMeeting.timeline);
-        this.emitMeetingLifecycle(
-          'meeting_ended',
-          this.activeMeeting.platform,
-          this.activeMeeting.confidence,
-          'stop',
-          this.activeMeeting.signal,
-          undefined,
-          endedTimeline
-        );
-      }
-      this.activeMeeting = null;
-
-      // Clear active sessions when stopping
-      this.activeSessions.clear();
-      this.pendingConfidence.clear();
-      this.serviceContext.clear();
-      this.browserMeetingHints.clear();
+    if (this.meetingEndTimer) {
+      clearTimeout(this.meetingEndTimer);
+      this.meetingEndTimer = undefined;
     }
+    if (this.activeMeeting) {
+      const endedTimeline = endSessionTimeline(this.activeMeeting.timeline);
+      this.emitMeetingLifecycle(
+        'meeting_ended',
+        this.activeMeeting.platform,
+        this.activeMeeting.confidence,
+        'stop',
+        this.activeMeeting.signal,
+        undefined,
+        endedTimeline
+      );
+    }
+    this.activeMeeting = null;
+
+    this.activeSessions.clear();
+    this.pendingConfidence.clear();
+    this.serviceContext.clear();
+    this.browserMeetingHints.clear();
 
     if (this.options.debug) {
       console.log('[MeetingDetector] Stopped monitoring');
@@ -1087,7 +921,7 @@ export class MeetingDetector extends EventEmitter {
    * Check if the detector is currently running
    */
   public isRunning(): boolean {
-    return !!this.process || !!this.nativePollingInterval || !!this.browserProbeInterval || !!this.nativeAppProbeInterval;
+    return !!this.nativePollingInterval || !!this.browserProbeInterval || !!this.nativeAppProbeInterval;
   }
 
   /**
@@ -1102,6 +936,39 @@ export class MeetingDetector extends EventEmitter {
    */
   public getNativeVersion(): string | null {
     return this.nativeModule?.version() ?? null;
+  }
+
+  /**
+   * Feed a signal directly into the processing pipeline.
+   * Normalizes the signal (service transform, boolean coercion, browser hints)
+   * the same way parseSignal does. Used for testing without the native module.
+   */
+  public feedSignal(raw: Record<string, any>): void {
+    this.handleIncomingSignal(this.normalizeSignal(raw));
+  }
+
+  /**
+   * Start in manual/test mode — sets up browser and native app probes
+   * and marks the detector as running, but does not require the native module.
+   * Signals must be injected via feedSignal().
+   */
+  public startManual(): void {
+    if (this.nativePollingInterval || this.browserProbeInterval || this.nativeAppProbeInterval) {
+      throw new Error('Detector is already running');
+    }
+
+    // Use a no-op interval to mark the detector as running
+    this.nativePollingInterval = setInterval(() => {}, 60000);
+    this.nativePollingInterval.unref?.();
+
+    if (process.platform === 'darwin') {
+      this.startBrowserTabProbe();
+      this.startNativeAppProbe();
+    }
+
+    if (this.options.startupProbe) {
+      this.probeActiveMeetingAtStartup();
+    }
   }
 
   /**
@@ -1636,7 +1503,10 @@ export class MeetingDetector extends EventEmitter {
   }
 
   private parseSignal(line: string): MeetingSignal {
-    const signal = JSON.parse(line) as Record<string, any>;
+    return this.normalizeSignal(JSON.parse(line) as Record<string, any>);
+  }
+
+  private normalizeSignal(signal: Record<string, any>): MeetingSignal {
     const browserHint = this.getBrowserMeetingHint({
       process: signal.process || '',
       front_app: signal.front_app || '',
@@ -1684,102 +1554,99 @@ export class MeetingDetector extends EventEmitter {
    * Emits a synthetic meeting_started lifecycle event if found.
    * This handles the case where the detector starts while a call is already in progress.
    */
-  private probeActiveMeetingAtStartup(): void {
-    // Check whether the camera daemon is already running (indicates active camera use).
-    const cameraProbe = spawn('sh', ['-c',
-      'pgrep -xq VDCAssistant 2>/dev/null || pgrep -xq AppleCameraAssistant 2>/dev/null'
-    ]);
-    cameraProbe.on('close', (cameraCode) => {
-      // P2 guard: abort if the detector was stopped before this callback fired.
-      if (!this.process) return;
-      if (cameraCode !== 0) return; // Camera not active — no meeting in progress.
+  private async probeActiveMeetingAtStartup(): Promise<void> {
+    try {
+      // Check whether the camera daemon is already running (indicates active camera use).
+      await execFileAsync('sh', ['-c',
+        'pgrep -xq VDCAssistant 2>/dev/null || pgrep -xq AppleCameraAssistant 2>/dev/null'
+      ], { timeout: 2000 });
+    } catch {
+      return; // Camera not active — no meeting in progress.
+    }
 
-      // Candidates in priority order. Run ALL checks independently (semicolons, not ||) so
-      // every running app is discovered, then resolve ambiguity via front-app tiebreak.
-      const candidates = NATIVE_STARTUP_PROBE_TARGETS.map(({ process, platform }) => [process, platform] as const);
+    if (!this.isRunning()) return;
 
-      // Query front app in parallel with process checks so we can resolve ambiguity
-      // without adding extra latency.
-      const procScript = candidates
-        .map(([proc, label]) => `pgrep -xq "${proc}" 2>/dev/null && echo "${label}"; true`)
-        .join('; ');
-      const fullScript = `(${procScript}); echo "FRONTAPP=$(osascript -e 'tell application "System Events" to name of first application process whose frontmost is true' 2>/dev/null || echo '')"`;
+    // Candidates in priority order. Run ALL checks independently so
+    // every running app is discovered, then resolve ambiguity via front-app tiebreak.
+    const candidates = NATIVE_STARTUP_PROBE_TARGETS.map(({ process, platform }) => [process, platform] as const);
 
-      const procProbe = spawn('sh', ['-c', fullScript]);
-      let output = '';
-      procProbe.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
-      procProbe.on('close', async () => {
-        // P2 guard: abort if the detector was stopped while the probe was running.
-        if (!this.process) return;
+    const procScript = candidates
+      .map(([proc, label]) => `pgrep -xq "${proc}" 2>/dev/null && echo "${label}"; true`)
+      .join('; ');
+    const fullScript = `(${procScript}); echo "FRONTAPP=$(osascript -e 'tell application "System Events" to name of first application process whose frontmost is true' 2>/dev/null || echo '')"`;
 
-        const matched = candidates.filter(([, label]) => output.includes(label));
-        if (matched.length === 0) return; // No known meeting process found.
+    let output: string;
+    try {
+      const result = await execFileAsync('sh', ['-c', fullScript], { timeout: 5000 });
+      output = result.stdout;
+    } catch {
+      return;
+    }
 
-        let selected = matched[0]; // Priority-order fallback (first in candidate list).
+    if (!this.isRunning()) return;
 
-        if (matched.length > 1) {
-          // Multiple meeting apps are running. Use the frontmost app to tiebreak:
-          // the focused window is almost always the active meeting.
-          const frontMatch = output.match(/FRONTAPP=(.+)/);
-          const frontApp = (frontMatch?.[1] || '').trim().toLowerCase();
-          const frontCandidate = matched.find(([proc]) =>
-            proc.toLowerCase().includes(frontApp) || frontApp.includes(proc.toLowerCase())
-          );
-          if (frontCandidate) {
-            selected = frontCandidate;
-          }
-          // If frontmost app is not a meeting app (e.g. user is in Zoom but looking at
-          // a browser), fall through to priority-order selection (selected = matched[0]).
-          if (this.options.debug) {
-            console.log(
-              '[MeetingDetector] Startup probe: multiple apps found, front app resolution',
-              { matched: matched.map(([, l]) => l), frontApp, selected: selected[1] }
-            );
-          }
-        }
+    const matched = candidates.filter(([, label]) => output.includes(label));
+    if (matched.length === 0) return;
 
-        const [procName, platform] = selected;
-        const frontMatch = output.match(/FRONTAPP=(.+)/);
-        const frontApp = (frontMatch?.[1] || '').trim();
-        const frontWindowTitle = this.isFrontAppConsistentWithService(frontApp, platform)
-          ? await this.probeFrontWindowTitle()
-          : '';
-        const inferredPlatform = this.shouldEmitStartupProbeMeeting(
-          platform,
-          procName,
-          frontApp,
-          frontWindowTitle
+    let selected = matched[0];
+
+    if (matched.length > 1) {
+      const frontMatch = output.match(/FRONTAPP=(.+)/);
+      const frontApp = (frontMatch?.[1] || '').trim().toLowerCase();
+      const frontCandidate = matched.find(([proc]) =>
+        proc.toLowerCase().includes(frontApp) || frontApp.includes(proc.toLowerCase())
+      );
+      if (frontCandidate) {
+        selected = frontCandidate;
+      }
+      if (this.options.debug) {
+        console.log(
+          '[MeetingDetector] Startup probe: multiple apps found, front app resolution',
+          { matched: matched.map(([, l]) => l), frontApp, selected: selected[1] }
         );
-        if (!inferredPlatform) {
-          return;
-        }
+      }
+    }
 
-        const now = new Date().toISOString().slice(0, 19) + 'Z';
-        const syntheticSignal: MeetingSignal = {
-          event: 'meeting_signal',
-          timestamp: now,
-          service: inferredPlatform,
-          verdict: 'allowed',
-          preflight: false,
-          process: procName,
-          pid: '',
-          parent_pid: '',
-          process_path: '',
-          front_app: frontApp || procName,
-          window_title: frontWindowTitle,
-          session_id: '',
-          camera_active: true,
-        };
+    const [procName, platform] = selected;
+    const frontMatch = output.match(/FRONTAPP=(.+)/);
+    const frontApp = (frontMatch?.[1] || '').trim();
+    const frontWindowTitle = this.isFrontAppConsistentWithService(frontApp, platform)
+      ? await this.probeFrontWindowTitle()
+      : '';
+    const inferredPlatform = this.shouldEmitStartupProbeMeeting(
+      platform,
+      procName,
+      frontApp,
+      frontWindowTitle
+    );
+    if (!inferredPlatform) {
+      return;
+    }
 
-        if (this.options.debug) {
-          console.log('[MeetingDetector] Startup probe found active meeting:', platform);
-        }
+    const now = new Date().toISOString().slice(0, 19) + 'Z';
+    const syntheticSignal: MeetingSignal = {
+      event: 'meeting_signal',
+      timestamp: now,
+      service: inferredPlatform,
+      verdict: 'allowed',
+      preflight: false,
+      process: procName,
+      pid: '',
+      parent_pid: '',
+      process_path: '',
+      front_app: frontApp || procName,
+      window_title: frontWindowTitle,
+      session_id: '',
+      camera_active: true,
+    };
 
-        this.updateMeetingLifecycle(syntheticSignal);
-        const outputSignal = this.sanitizeSignalForOutput(syntheticSignal);
-        this.emit('meeting', outputSignal);
-      });
-    });
+    if (this.options.debug) {
+      console.log('[MeetingDetector] Startup probe found active meeting:', platform);
+    }
+
+    this.updateMeetingLifecycle(syntheticSignal);
+    const outputSignal = this.sanitizeSignalForOutput(syntheticSignal);
+    this.emit('meeting', outputSignal);
   }
 
   private shouldEmitStartupProbeMeeting(

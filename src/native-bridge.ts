@@ -13,6 +13,7 @@ import type { MeetingSignal, MeetingLifecycleEvent, MeetingPlatform } from './ty
 export interface NativeDetector {
   start(): void;
   stop(): MeetingLifecycleEvent | null;
+  detect(): MeetingSignal | null;
   isRunning(): boolean;
   platformName(): string;
   isSupported(): boolean;

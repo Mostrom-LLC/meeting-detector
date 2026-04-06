@@ -13,7 +13,6 @@
   },
   "files": [
     "dist/**/*",
-    "meeting-detect.sh",
     "native/*.node",
     "native/index.js",
     "native/index.d.ts",

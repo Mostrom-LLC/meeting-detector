@@ -1,8 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { MeetingDetector } from '../dist/detector.js';
 
 function signal(overrides = {}) {
@@ -24,29 +21,12 @@ function signal(overrides = {}) {
   };
 }
 
-function createEmitterScript(lines, tailSleepMs = 0) {
-  const dir = mkdtempSync(join(tmpdir(), 'meeting-test-'));
-  const scriptPath = join(dir, 'emit.sh');
-  const content = ['#!/bin/sh', 'set -eu'];
-  for (const item of lines) {
-    const payload = JSON.stringify(item.signal).replace(/'/g, `'\\''`);
-    content.push(`echo '${payload}'`);
-    if (item.sleepMs && item.sleepMs > 0) {
-      content.push(`sleep ${(item.sleepMs / 1000).toFixed(3)}`);
-    }
-  }
-  if (tailSleepMs > 0) {
-    content.push(`sleep ${(tailSleepMs / 1000).toFixed(3)}`);
-  }
-  writeFileSync(scriptPath, `${content.join('\n')}\n`, 'utf8');
-  chmodSync(scriptPath, 0o755);
-  return { dir, scriptPath };
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function runScenario(lines, options = {}, tailSleepMs = 0, timeoutMs = 3000) {
-  const { dir, scriptPath } = createEmitterScript(lines, tailSleepMs);
   const detector = new MeetingDetector({
-    scriptPath,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
     startupProbe: false,
@@ -61,28 +41,28 @@ async function runScenario(lines, options = {}, tailSleepMs = 0, timeoutMs = 300
   const ended = [];
   const errors = [];
 
-  try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, timeoutMs);
+  detector.on('meeting', (event) => rawEvents.push(event));
+  detector.on('meeting_started', (event) => started.push(event));
+  detector.on('meeting_changed', (event) => changed.push(event));
+  detector.on('meeting_ended', (event) => ended.push(event));
+  detector.on('error', (error) => errors.push(error));
 
-      detector.on('meeting', (event) => rawEvents.push(event));
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('meeting_changed', (event) => changed.push(event));
-      detector.on('meeting_ended', (event) => ended.push(event));
-      detector.on('error', (error) => errors.push(error));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
+  detector.startManual();
 
-      detector.start();
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  // Feed signals with timing
+  for (const item of lines) {
+    detector.feedSignal(item.signal);
+    if (item.sleepMs && item.sleepMs > 0) {
+      await sleep(item.sleepMs);
+    }
   }
+
+  // Wait for tail sleep (allows meeting_ended timeouts to fire)
+  if (tailSleepMs > 0) {
+    await sleep(tailSleepMs);
+  }
+
+  detector.stop();
 
   return { rawEvents, started, changed, ended, errors };
 }
@@ -593,9 +573,7 @@ test('suppresses Jitsi prejoin camera checks without stronger meeting evidence',
 });
 
 test('browser meeting tabs alone do not emit lifecycle events without corroborating media signals', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -615,46 +593,19 @@ test('browser meeting tabs alone do not emit lifecycle events without corroborat
   detector.probeCameraActiveState = async () => false;
   detector.probeMediaState = async () => ({ camera: false, mic: false });
 
-  try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
+  detector.on('meeting_started', (event) => started.push(event));
+  detector.on('meeting', (event) => rawEvents.push(event));
 
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('meeting', (event) => rawEvents.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  detector.startManual();
+  await sleep(300);
+  detector.stop();
 
   assert.equal(started.length, 0);
   assert.equal(rawEvents.length, 0);
 });
 
 test('browser meeting hints can attribute real Chrome media signals without standalone browser starts', async () => {
-  const { dir, scriptPath } = createEmitterScript([
-    {
-      signal: signal({
-        service: 'microphone',
-        process: 'Google Chrome Helper',
-        process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
-        front_app: 'Google Chrome',
-        window_title: '',
-        chrome_url: '',
-      }),
-    },
-  ]);
-
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -671,25 +622,20 @@ test('browser meeting hints can attribute real Chrome media signals without stan
     },
   ];
 
-  try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
+  detector.on('meeting_started', (event) => started.push(event));
+  detector.on('meeting', (event) => rawEvents.push(event));
 
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('meeting', (event) => rawEvents.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  detector.startManual();
+  detector.feedSignal(signal({
+    service: 'microphone',
+    process: 'Google Chrome Helper',
+    process_path: '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper',
+    front_app: 'Google Chrome',
+    window_title: '',
+    chrome_url: '',
+  }));
+  await sleep(50);
+  detector.stop();
 
   assert.equal(started.length, 1);
   assert.equal(started[0].platform, 'Microsoft Teams');
@@ -698,9 +644,7 @@ test('browser meeting hints can attribute real Chrome media signals without stan
 });
 
 test('native app probe can emit an active Teams meeting signal without shell TCC traffic', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -726,25 +670,12 @@ test('native app probe can emit an active Teams meeting signal without shell TCC
     chrome_url: undefined,
   });
 
-  try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
+  detector.on('meeting_started', (event) => started.push(event));
+  detector.on('meeting', (event) => rawEvents.push(event));
 
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('meeting', (event) => rawEvents.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  detector.startManual();
+  await sleep(300);
+  detector.stop();
 
   assert.equal(started.length, 1);
   assert.equal(started[0].platform, 'Microsoft Teams');
@@ -754,14 +685,7 @@ test('native app probe can emit an active Teams meeting signal without shell TCC
 
 test('startup probe does not emit lifecycle events after detector is stopped immediately', async () => {
   // P2 guard: async probe callbacks must abort if stop() was already called.
-  const dir = mkdtempSync(join(tmpdir(), 'meeting-test-'));
-  const scriptPath = join(dir, 'emit.sh');
-  // Script that blocks long enough for the probe callbacks to fire
-  writeFileSync(scriptPath, '#!/bin/sh\nsleep 5\n', 'utf8');
-  chmodSync(scriptPath, 0o755);
-
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: true,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -773,7 +697,7 @@ test('startup probe does not emit lifecycle events after detector is stopped imm
   detector.on('meeting_started', e => events.push(e));
   detector.on('meeting', e => events.push(e));
 
-  detector.start();
+  detector.startManual();
   // Immediately stop — probe sub-processes are still running
   detector.stop();
 
@@ -781,13 +705,10 @@ test('startup probe does not emit lifecycle events after detector is stopped imm
   await new Promise(r => setTimeout(r, 2000));
 
   assert.equal(events.length, 0, 'No events should fire after immediate stop()');
-  rmSync(dir, { recursive: true, force: true });
 });
 
 test('native app probe does not emit lifecycle events after detector is stopped immediately', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -818,13 +739,12 @@ test('native app probe does not emit lifecycle events after detector is stopped 
   detector.on('meeting_started', (event) => events.push(event));
   detector.on('meeting', (event) => events.push(event));
 
-  detector.start();
+  detector.startManual();
   detector.stop();
 
   await new Promise((resolve) => setTimeout(resolve, 500));
 
   assert.equal(events.length, 0, 'No native probe events should fire after immediate stop()');
-  rmSync(dir, { recursive: true, force: true });
 });
 
 test('maintains platform identity when meeting is backgrounded and front app is unrelated', async () => {
@@ -832,9 +752,7 @@ test('maintains platform identity when meeting is backgrounded and front app is 
   // mismatched front_app. The idle-title filter blocks it (correctly — it could be
   // an idle launch signal). The native app probe is the correct path for backgrounded
   // meeting detection, so this test validates via the probe stub.
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -861,25 +779,12 @@ test('maintains platform identity when meeting is backgrounded and front app is 
     chrome_url: undefined,
   });
 
-  try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
+  detector.on('meeting', (event) => rawEvents.push(event));
+  detector.on('meeting_started', (event) => started.push(event));
 
-      detector.on('meeting', (event) => rawEvents.push(event));
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  detector.startManual();
+  await sleep(300);
+  detector.stop();
 
   assert.equal(rawEvents.length, 1);
   assert.equal(rawEvents[0].service, 'Microsoft Teams');
@@ -888,36 +793,6 @@ test('maintains platform identity when meeting is backgrounded and front app is 
 });
 
 test('dedupes repeated debug logs for identical ignored signals', async () => {
-  const { dir, scriptPath } = createEmitterScript([
-    {
-      signal: signal({
-        process: 'SomeRandomCameraApp',
-        front_app: 'Unknown',
-        service: 'Unknown',
-        verdict: 'requested',
-        preflight: 'false',
-        window_title: '',
-        camera_active: 'true',
-        chrome_url: '',
-        process_path: '/Applications/SomeRandomCameraApp.app/Contents/MacOS/SomeRandomCameraApp',
-      }),
-      sleepMs: 20,
-    },
-    {
-      signal: signal({
-        process: 'SomeRandomCameraApp',
-        front_app: 'Unknown',
-        service: 'Unknown',
-        verdict: 'requested',
-        preflight: 'false',
-        window_title: '',
-        camera_active: 'true',
-        chrome_url: '',
-        process_path: '/Applications/SomeRandomCameraApp.app/Contents/MacOS/SomeRandomCameraApp',
-      }),
-    },
-  ]);
-
   const originalLog = console.log;
   const logs = [];
   let detector;
@@ -925,17 +800,40 @@ test('dedupes repeated debug logs for identical ignored signals', async () => {
   try {
     console.log = (...args) => logs.push(args.join(' '));
     detector = new MeetingDetector({
-      scriptPath,
       debug: true,
       startupProbe: false,
     });
-    await new Promise((resolve) => {
-      detector.on('exit', resolve);
-      detector.start();
-    });
+    detector.listBrowserTabs = async () => [];
+    detector.detectActiveNativeMeetingSignal = async () => null;
+
+    detector.startManual();
+    detector.feedSignal(signal({
+      process: 'SomeRandomCameraApp',
+      front_app: 'Unknown',
+      service: 'Unknown',
+      verdict: 'requested',
+      preflight: 'false',
+      window_title: '',
+      camera_active: 'true',
+      chrome_url: '',
+      process_path: '/Applications/SomeRandomCameraApp.app/Contents/MacOS/SomeRandomCameraApp',
+    }));
+    await sleep(20);
+    detector.feedSignal(signal({
+      process: 'SomeRandomCameraApp',
+      front_app: 'Unknown',
+      service: 'Unknown',
+      verdict: 'requested',
+      preflight: 'false',
+      window_title: '',
+      camera_active: 'true',
+      chrome_url: '',
+      process_path: '/Applications/SomeRandomCameraApp.app/Contents/MacOS/SomeRandomCameraApp',
+    }));
+    await sleep(50);
+    detector.stop();
   } finally {
     console.log = originalLog;
-    rmSync(dir, { recursive: true, force: true });
   }
 
   assert.equal(logs.filter((line) => line.includes('Ignoring signal:')).length, 1);
@@ -945,32 +843,6 @@ test('dedupes repeated debug logs for identical low-confidence signals', async (
   // Teams WebView preflight signals with empty titles are now caught by the idle-title
   // filter in shouldIgnoreSignal() before reaching resolveConfidence(). The debug log
   // message is "Ignoring signal" rather than "Holding low-confidence signal".
-  const { dir, scriptPath } = createEmitterScript([
-    {
-      signal: signal({
-        service: 'Microsoft Teams',
-        process: 'Microsoft Teams WebView',
-        front_app: 'MSTeams',
-        verdict: 'requested',
-        preflight: 'true',
-        window_title: '',
-        camera_active: 'true',
-      }),
-      sleepMs: 20,
-    },
-    {
-      signal: signal({
-        service: 'Microsoft Teams',
-        process: 'Microsoft Teams WebView',
-        front_app: 'MSTeams',
-        verdict: 'requested',
-        preflight: 'true',
-        window_title: '',
-        camera_active: 'true',
-      }),
-    },
-  ]);
-
   const originalLog = console.log;
   const logs = [];
   let detector;
@@ -978,17 +850,36 @@ test('dedupes repeated debug logs for identical low-confidence signals', async (
   try {
     console.log = (...args) => logs.push(args.join(' '));
     detector = new MeetingDetector({
-      scriptPath,
       debug: true,
       startupProbe: false,
     });
-    await new Promise((resolve) => {
-      detector.on('exit', resolve);
-      detector.start();
-    });
+    detector.listBrowserTabs = async () => [];
+    detector.detectActiveNativeMeetingSignal = async () => null;
+
+    detector.startManual();
+    detector.feedSignal(signal({
+      service: 'Microsoft Teams',
+      process: 'Microsoft Teams WebView',
+      front_app: 'MSTeams',
+      verdict: 'requested',
+      preflight: 'true',
+      window_title: '',
+      camera_active: 'true',
+    }));
+    await sleep(20);
+    detector.feedSignal(signal({
+      service: 'Microsoft Teams',
+      process: 'Microsoft Teams WebView',
+      front_app: 'MSTeams',
+      verdict: 'requested',
+      preflight: 'true',
+      window_title: '',
+      camera_active: 'true',
+    }));
+    await sleep(50);
+    detector.stop();
   } finally {
     console.log = originalLog;
-    rmSync(dir, { recursive: true, force: true });
   }
 
   assert.equal(logs.filter((line) => line.includes('Ignoring signal:')).length, 1);
@@ -1025,9 +916,7 @@ test('can emit Unknown lifecycle for unattributed browser camera usage when expl
 // ——— Signal Detection Hardening: Native Probe Regression Tests ———
 
 test('native app probe detects Teams meeting when VS Code is frontmost', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -1054,34 +943,19 @@ test('native app probe detects Teams meeting when VS Code is frontmost', async (
     chrome_url: undefined,
   });
 
-  try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
+  detector.on('meeting_started', (event) => started.push(event));
+  detector.on('meeting', (event) => rawEvents.push(event));
 
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('meeting', (event) => rawEvents.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  detector.startManual();
+  await sleep(300);
+  detector.stop();
 
   assert.equal(started.length, 1);
   assert.equal(started[0].platform, 'Microsoft Teams');
 });
 
 test('native app probe suppresses idle Slack when title has no huddle evidence', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -1097,62 +971,44 @@ test('native app probe suppresses idle Slack when title has no huddle evidence',
     updatedAt: Date.now(),
   };
 
-  try {
-    const signal = await detector.detectActiveNativeMeetingSignal();
-    assert.equal(signal, null);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const result = await detector.detectActiveNativeMeetingSignal();
+  assert.equal(result, null);
 });
 
 test('startup probe validation suppresses idle Slack without huddle evidence', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
   });
 
-  try {
-    const inferred = detector.shouldEmitStartupProbeMeeting(
-      'Slack',
-      'Slack',
-      'Finder',
-      ''
-    );
-    assert.equal(inferred, null);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const inferred = detector.shouldEmitStartupProbeMeeting(
+    'Slack',
+    'Slack',
+    'Finder',
+    ''
+  );
+  assert.equal(inferred, null);
 });
 
 test('startup probe validation allows Slack when front app and title indicate huddle', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
   });
 
-  try {
-    const inferred = detector.shouldEmitStartupProbeMeeting(
-      'Slack',
-      'Slack',
-      'Slack',
-      'Huddle: #general - Mostrom, LLC - Slack'
-    );
-    assert.equal(inferred, 'Slack');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const inferred = detector.shouldEmitStartupProbeMeeting(
+    'Slack',
+    'Slack',
+    'Slack',
+    'Huddle: #general - Mostrom, LLC - Slack'
+  );
+  assert.equal(inferred, 'Slack');
 });
 
 test('native app probe detects Slack huddle when Slack is frontmost', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -1168,20 +1024,14 @@ test('native app probe detects Slack huddle when Slack is frontmost', async () =
     updatedAt: Date.now(),
   };
 
-  try {
-    const signal = await detector.detectActiveNativeMeetingSignal();
-    assert.ok(signal);
-    assert.equal(signal?.service, 'Slack');
-    assert.equal(signal?.window_title, 'Huddle: #general - Mostrom, LLC - Slack');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const result = await detector.detectActiveNativeMeetingSignal();
+  assert.ok(result);
+  assert.equal(result?.service, 'Slack');
+  assert.equal(result?.window_title, 'Huddle: #general - Mostrom, LLC - Slack');
 });
 
 test('native Teams probe is NOT suppressed by a Google Meet browser hint', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -1206,19 +1056,13 @@ test('native Teams probe is NOT suppressed by a Google Meet browser hint', async
     }]],
   ]);
 
-  try {
-    const signal = await detector.detectActiveNativeMeetingSignal();
-    assert.ok(signal);
-    assert.equal(signal?.service, 'Microsoft Teams');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const result = await detector.detectActiveNativeMeetingSignal();
+  assert.ok(result);
+  assert.equal(result?.service, 'Microsoft Teams');
 });
 
 test('native Slack probe is NOT suppressed by a Teams browser hint', async () => {
-  const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -1243,13 +1087,9 @@ test('native Slack probe is NOT suppressed by a Teams browser hint', async () =>
     }]],
   ]);
 
-  try {
-    const signal = await detector.detectActiveNativeMeetingSignal();
-    assert.ok(signal);
-    assert.equal(signal?.service, 'Slack');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const result = await detector.detectActiveNativeMeetingSignal();
+  assert.ok(result);
+  assert.equal(result?.service, 'Slack');
 });
 
 test('recorder app (OBS) with mic access only does NOT emit a meeting', async () => {
@@ -1543,9 +1383,7 @@ test('rejects app.zoom.us/wc/home as a meeting URL', async () => {
 test('browser probe synthesis requires TCC mic signal and does not fire on idle meeting tab alone', async () => {
   // When a meeting tab is open in Chrome but the user hasn't joined,
   // the browser probe should NOT synthesize a signal
-  const { dir, scriptPath } = createEmitterScript([], 500);
   const detector = new MeetingDetector({
-    scriptPath,
     startupProbe: false,
     sessionDeduplicationMs: 200,
     meetingEndTimeoutMs: 80,
@@ -1563,24 +1401,11 @@ test('browser probe synthesis requires TCC mic signal and does not fire on idle 
   detector.probeMediaState = async () => ({ camera: false, mic: false });
   detector.detectActiveNativeMeetingSignal = async () => null;
 
-  try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
+  detector.on('meeting_started', (event) => started.push(event));
 
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  detector.startManual();
+  await sleep(500);
+  detector.stop();
 
   // No TCC mic signal was emitted, so browser probe must not synthesize
   assert.equal(started.length, 0);

@@ -22,7 +22,7 @@ The active hardening plan lives in [tasks/signal-detection-hardening.md](/Volume
 ## Current Detection Model
 
 The current implementation combines:
-- macOS TCC/media-use signals from `meeting-detect.sh`
+- macOS TCC/media-use signals via native Rust module
 - process attribution and normalization
 - browser meeting route/title matching
 - lifecycle state tracking with dedupe and timeout handling

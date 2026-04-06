@@ -61,8 +61,7 @@ export interface ProcessExit {
 
 export interface MeetingDetectorOptions {
   /**
-   * Path to the meeting-detect.sh script
-   * @default './meeting-detect.sh'
+   * @deprecated No longer used — native module handles detection directly.
    */
   scriptPath?: string;
 
