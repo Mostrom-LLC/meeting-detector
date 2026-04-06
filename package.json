@@ -25,6 +25,14 @@
     "build:native": "cd native && npm run build",
     "build:native:debug": "cd native && npm run build:debug",
     "build:all": "npm run build:native && npm run build:ts",
+    "e2e:validate-env": "bash scripts/e2e/validate-env.sh",
+    "e2e:native": "node scripts/e2e/run-native-mcp-e2e.mjs",
+    "e2e:web": "node scripts/e2e/run-web-e2e.mjs",
+    "e2e:cypress": "npx cypress run --browser chrome",
+    "e2e:cypress:open": "npx cypress open --browser chrome",
+    "detect:matrix": "node scripts/e2e/run-provider-detection-matrix.mjs",
+    "detect:matrix:web": "node scripts/e2e/run-provider-detection-matrix.mjs --mode web",
+    "detect:matrix:native": "node scripts/e2e/run-provider-detection-matrix.mjs --mode native",
     "typecheck": "tsc --noEmit",
     "test": "npm run build:ts && node --test test/*.mjs",
     "test:native": "cd native && cargo test",
@@ -59,7 +67,10 @@
     "url": "https://github.com/Mostrom-LLC/meeting-detector/issues"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@playwright/test": "^1.53.0",
     "@types/node": "^20.0.0",
+    "cypress": "^15.13.0",
     "puppeteer-core": "^24.39.1",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"

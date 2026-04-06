@@ -6,6 +6,9 @@ dist/
 .env.local
 .env.e2e
 .auth-state.json
+cypress/screenshots/
+cypress/videos/
+test-results/
 
 # Internal documentation and workflows
 AGENTS.md
