@@ -208,6 +208,25 @@ test('suppresses idle native Zoom launch signals even if global camera state is 
   assert.equal(result.started.length, 0);
 });
 
+test('suppresses idle native Slack launch signals even if global camera state is hot', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Slack',
+        front_app: 'Slack',
+        window_title: '',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: true,
+      }),
+    },
+  ]);
+
+  assert.equal(result.rawEvents.length, 0);
+  assert.equal(result.started.length, 0);
+});
+
 test('keeps generic browser camera usage suppressed when emitUnknown is false', async () => {
   const result = await runScenario([
     {
@@ -1059,7 +1078,7 @@ test('native app probe detects Teams meeting when VS Code is frontmost', async (
   assert.equal(started[0].platform, 'Microsoft Teams');
 });
 
-test('native app probe detects Slack huddle when Finder is frontmost', async () => {
+test('native app probe suppresses idle Slack when title has no huddle evidence', async () => {
   const { dir, scriptPath } = createEmitterScript([], 300);
   const detector = new MeetingDetector({
     scriptPath,
@@ -1068,47 +1087,95 @@ test('native app probe detects Slack huddle when Finder is frontmost', async () 
     meetingEndTimeoutMs: 80,
   });
 
-  const started = [];
-
-  detector.listBrowserTabs = async () => [];
-  detector.detectActiveNativeMeetingSignal = async () => ({
-    event: 'meeting_signal',
-    timestamp: new Date().toISOString(),
-    service: 'Slack',
-    verdict: 'allowed',
-    preflight: false,
-    process: 'Slack',
-    pid: '',
-    parent_pid: '',
-    process_path: '',
-    front_app: 'Slack',
-    window_title: '',
-    session_id: '',
-    camera_active: false,
-    chrome_url: undefined,
-  });
+  detector.findRunningMeetingProcesses = async () => [{ process: 'Slack', platform: 'Slack' }];
+  detector.probeFrontmostAppName = async () => 'Finder';
+  detector.probeFrontWindowTitle = async () => '';
+  detector.lastTccMicSignalAt = Date.now();
+  detector.cachedMediaState = {
+    camera: true,
+    mic: false,
+    updatedAt: Date.now(),
+  };
 
   try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
-
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
+    const signal = await detector.detectActiveNativeMeetingSignal();
+    assert.equal(signal, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
 
-  assert.equal(started.length, 1);
-  assert.equal(started[0].platform, 'Slack');
+test('startup probe validation suppresses idle Slack without huddle evidence', async () => {
+  const { dir, scriptPath } = createEmitterScript([], 300);
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: false,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  try {
+    const inferred = detector.shouldEmitStartupProbeMeeting(
+      'Slack',
+      'Slack',
+      'Finder',
+      ''
+    );
+    assert.equal(inferred, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('startup probe validation allows Slack when front app and title indicate huddle', async () => {
+  const { dir, scriptPath } = createEmitterScript([], 300);
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: false,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  try {
+    const inferred = detector.shouldEmitStartupProbeMeeting(
+      'Slack',
+      'Slack',
+      'Slack',
+      'Huddle: #general - Mostrom, LLC - Slack'
+    );
+    assert.equal(inferred, 'Slack');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('native app probe detects Slack huddle when Slack is frontmost', async () => {
+  const { dir, scriptPath } = createEmitterScript([], 300);
+  const detector = new MeetingDetector({
+    scriptPath,
+    startupProbe: false,
+    sessionDeduplicationMs: 200,
+    meetingEndTimeoutMs: 80,
+  });
+
+  detector.findRunningMeetingProcesses = async () => [{ process: 'Slack', platform: 'Slack' }];
+  detector.probeFrontmostAppName = async () => 'Slack';
+  detector.probeFrontWindowTitle = async () => 'Huddle: #general - Mostrom, LLC - Slack';
+  detector.lastTccMicSignalAt = Date.now();
+  detector.cachedMediaState = {
+    camera: false,
+    mic: false,
+    updatedAt: Date.now(),
+  };
+
+  try {
+    const signal = await detector.detectActiveNativeMeetingSignal();
+    assert.ok(signal);
+    assert.equal(signal?.service, 'Slack');
+    assert.equal(signal?.window_title, 'Huddle: #general - Mostrom, LLC - Slack');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('native Teams probe is NOT suppressed by a Google Meet browser hint', async () => {
@@ -1120,56 +1187,32 @@ test('native Teams probe is NOT suppressed by a Google Meet browser hint', async
     meetingEndTimeoutMs: 80,
   });
 
-  const started = [];
-
-  // Simulate a Google Meet browser tab (different platform)
-  detector.listBrowserTabs = async () => [{
-    browser: 'Google Chrome',
-    title: 'Meet - abc-defg-hij',
-    url: 'https://meet.google.com/abc-defg-hij',
-  }];
-
-  // Prevent browser probe synthesis from firing (mic=false)
-  detector.probeMediaState = async () => ({ camera: false, mic: false });
-
-  detector.detectActiveNativeMeetingSignal = async () => ({
-    event: 'meeting_signal',
-    timestamp: new Date().toISOString(),
-    service: 'Microsoft Teams',
-    verdict: 'allowed',
-    preflight: false,
-    process: 'MSTeams',
-    pid: '',
-    parent_pid: '',
-    process_path: '',
-    front_app: 'Microsoft Teams',
-    window_title: '',
-    session_id: '',
-    camera_active: true,
-    chrome_url: undefined,
-  });
+  detector.findRunningMeetingProcesses = async () => [{ process: 'MSTeams', platform: 'Microsoft Teams' }];
+  detector.probeFrontmostAppName = async () => 'Microsoft Teams';
+  detector.probeFrontWindowTitle = async () => 'Meet | Daily Sync | Microsoft Teams';
+  detector.lastTccMicSignalAt = Date.now();
+  detector.cachedMediaState = {
+    camera: false,
+    mic: false,
+    updatedAt: Date.now(),
+  };
+  detector.browserMeetingHints = new Map([
+    ['Google Chrome', [{
+      browser: 'Google Chrome',
+      platform: 'Google Meet',
+      title: 'Meet - abc-defg-hij',
+      url: 'https://meet.google.com/abc-defg-hij',
+      seenAt: Date.now(),
+    }]],
+  ]);
 
   try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
-
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
+    const signal = await detector.detectActiveNativeMeetingSignal();
+    assert.ok(signal);
+    assert.equal(signal?.service, 'Microsoft Teams');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-
-  assert.equal(started.length, 1);
-  assert.equal(started[0].platform, 'Microsoft Teams');
 });
 
 test('native Slack probe is NOT suppressed by a Teams browser hint', async () => {
@@ -1181,56 +1224,32 @@ test('native Slack probe is NOT suppressed by a Teams browser hint', async () =>
     meetingEndTimeoutMs: 80,
   });
 
-  const started = [];
-
-  // Simulate a Teams browser tab (different platform from Slack)
-  detector.listBrowserTabs = async () => [{
-    browser: 'Google Chrome',
-    title: 'Meet | Daily Sync | Microsoft Teams',
-    url: 'https://teams.live.com/v2/?meetingjoin=true',
-  }];
-
-  // Prevent browser probe synthesis from firing (mic=false)
-  detector.probeMediaState = async () => ({ camera: false, mic: false });
-
-  detector.detectActiveNativeMeetingSignal = async () => ({
-    event: 'meeting_signal',
-    timestamp: new Date().toISOString(),
-    service: 'Slack',
-    verdict: 'allowed',
-    preflight: false,
-    process: 'Slack',
-    pid: '',
-    parent_pid: '',
-    process_path: '',
-    front_app: 'Slack',
-    window_title: '',
-    session_id: '',
-    camera_active: false,
-    chrome_url: undefined,
-  });
+  detector.findRunningMeetingProcesses = async () => [{ process: 'Slack', platform: 'Slack' }];
+  detector.probeFrontmostAppName = async () => 'Slack';
+  detector.probeFrontWindowTitle = async () => 'Huddle: #general - Mostrom, LLC - Slack';
+  detector.lastTccMicSignalAt = Date.now();
+  detector.cachedMediaState = {
+    camera: false,
+    mic: false,
+    updatedAt: Date.now(),
+  };
+  detector.browserMeetingHints = new Map([
+    ['Google Chrome', [{
+      browser: 'Google Chrome',
+      platform: 'Microsoft Teams',
+      title: 'Meet | Daily Sync | Microsoft Teams',
+      url: 'https://teams.live.com/v2/?meetingjoin=true',
+      seenAt: Date.now(),
+    }]],
+  ]);
 
   try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        detector.stop();
-        reject(new Error('scenario timeout'));
-      }, 2000);
-
-      detector.on('meeting_started', (event) => started.push(event));
-      detector.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      detector.start();
-    });
+    const signal = await detector.detectActiveNativeMeetingSignal();
+    assert.ok(signal);
+    assert.equal(signal?.service, 'Slack');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-
-  assert.equal(started.length, 1);
-  assert.equal(started[0].platform, 'Slack');
 });
 
 test('recorder app (OBS) with mic access only does NOT emit a meeting', async () => {
@@ -1578,6 +1597,81 @@ test('suppresses MSTeamsAudioDevice.driver as system audio infrastructure', asyn
         verdict: 'allowed',
         preflight: 'false',
         camera_active: 'false',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 0);
+  assert.equal(result.rawEvents.length, 0);
+});
+
+test('suppresses MSTeamsAudioDevice.driver wrapper process names even when camera is hot', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'Core Audio Driver (MSTeamsAudioDevice.driver)',
+        front_app: 'Core Audio Driver (MSTeamsAudioDevice.driver)',
+        window_title: '',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: 'true',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 0);
+  assert.equal(result.rawEvents.length, 0);
+});
+
+test('suppresses Core Audio Driver (MSTeamsAudioDevice.driver) even with stale Teams browser context', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'Microsoft Teams',
+        process: 'Google Chrome Helper',
+        front_app: 'Google Chrome',
+        window_title: 'Meet | Daily Sync | Microsoft Teams',
+        chrome_url: 'https://teams.live.com/v2/?meetingjoin=true',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: 'true',
+      }),
+      sleepMs: 40,
+    },
+    {
+      signal: signal({
+        service: 'Microsoft Teams',
+        process: 'Core Audio Driver (MSTeamsAudioDevice.driver)',
+        front_app: 'Core Audio Driver (MSTeamsAudioDevice.driver)',
+        window_title: '',
+        chrome_url: '',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: 'true',
+      }),
+    },
+  ]);
+
+  assert.equal(result.started.length, 1);
+  assert.equal(result.started[0].platform, 'Microsoft Teams');
+  assert.equal(result.rawEvents.length, 1);
+  assert.equal(result.rawEvents[0].process, 'Google Chrome Helper');
+});
+
+test('suppresses Teams audio-driver artifacts when only front_app/session_id contain MSTeamsAudioDevice.driver', async () => {
+  const result = await runScenario([
+    {
+      signal: signal({
+        service: 'microphone',
+        process: 'log',
+        front_app: 'Core Audio Driver (MSTeamsAudioDevice.driver)',
+        session_id: 'Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)',
+        window_title: '',
+        chrome_url: '',
+        verdict: 'allowed',
+        preflight: 'false',
+        camera_active: 'true',
       }),
     },
   ]);
