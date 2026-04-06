@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchBrowserMeetingTab } from '../dist/detector.js';
+import { classifyBrowserMeetingTab } from '../dist/classifiers/browser-platform.js';
 
 test('matches Google Meet meeting tabs by code route', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'abc-defg-hij - Google Meet',
     url: 'https://meet.google.com/abc-defg-hij',
@@ -11,7 +11,7 @@ test('matches Google Meet meeting tabs by code route', () => {
 });
 
 test('matches Zoom web meeting tabs', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Zoom',
     url: 'https://app.zoom.us/wc/8716769399/join?pwd=test',
@@ -19,7 +19,7 @@ test('matches Zoom web meeting tabs', () => {
 });
 
 test('matches Zoom root-host web meeting tabs', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Zoom',
     url: 'https://zoom.us/wc/8716769399/join?pwd=test',
@@ -27,7 +27,7 @@ test('matches Zoom root-host web meeting tabs', () => {
 });
 
 test('matches Microsoft Teams web meeting tabs', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Join the meeting now | Microsoft Teams',
     url: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_test',
@@ -35,7 +35,7 @@ test('matches Microsoft Teams web meeting tabs', () => {
 });
 
 test('matches Microsoft Teams launcher rewrite routes', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Join conversation',
     url: 'https://teams.microsoft.com/dl/launcher/launcher.html?url=%2F_%23%2Fl%2Fmeetup-join%2F19%3Ameeting_test&type=meetup-join',
@@ -43,7 +43,7 @@ test('matches Microsoft Teams launcher rewrite routes', () => {
 });
 
 test('matches Microsoft Teams launcher rewrite routes with plain meetup paths', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Join conversation',
     url: 'https://teams.microsoft.com/dl/launcher/launcher.html?url=/l/meetup-join/19%3Ameeting_test&foo=1',
@@ -51,7 +51,7 @@ test('matches Microsoft Teams launcher rewrite routes with plain meetup paths', 
 });
 
 test('matches Microsoft Teams live consumer meeting routes', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Microsoft Teams meeting | Microsoft Teams',
     url: 'https://teams.live.com/light-meetings/launch?anon=true&lightExperience=true',
@@ -59,7 +59,7 @@ test('matches Microsoft Teams live consumer meeting routes', () => {
 });
 
 test('matches Microsoft Teams light-meetings routes without the launch suffix', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Microsoft Teams meeting | Microsoft Teams',
     url: 'https://teams.microsoft.com/light-meetings?anon=true',
@@ -67,7 +67,7 @@ test('matches Microsoft Teams light-meetings routes without the launch suffix', 
 });
 
 test('matches Microsoft Teams v2 meetingjoin routes with extra query params', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Join the meeting now | Microsoft Teams',
     url: 'https://teams.microsoft.com/v2/?foo=1&meetingjoin=true&bar=2',
@@ -75,7 +75,7 @@ test('matches Microsoft Teams v2 meetingjoin routes with extra query params', ()
 });
 
 test('matches Microsoft Teams v2 meeting surfaces when the title indicates a live meeting', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Meet | Meeting with kaise white | Microsoft Teams',
     url: 'https://teams.live.com/v2/',
@@ -83,7 +83,7 @@ test('matches Microsoft Teams v2 meeting surfaces when the title indicates a liv
 });
 
 test('matches Microsoft Teams v2 meeting surfaces with structured live meeting titles', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Meet | Daily Sync | Microsoft Teams',
     url: 'https://teams.live.com/v2/',
@@ -91,7 +91,7 @@ test('matches Microsoft Teams v2 meeting surfaces with structured live meeting t
 });
 
 test('does not match Microsoft Teams v2 prejoin pages', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Meet | Microsoft Teams',
     url: 'https://teams.live.com/v2/',
@@ -99,7 +99,7 @@ test('does not match Microsoft Teams v2 prejoin pages', () => {
 });
 
 test('does not match Microsoft Teams landing pages', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Microsoft Teams',
     url: 'https://teams.live.com/v2/',
@@ -107,7 +107,7 @@ test('does not match Microsoft Teams landing pages', () => {
 });
 
 test('matches Slack huddle tabs by app route and title', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Huddle in development - Slack',
     url: 'https://app.slack.com/client/T05AXT2C65P/C0AGWNWB2MV/huddle',
@@ -115,15 +115,39 @@ test('matches Slack huddle tabs by app route and title', () => {
 });
 
 test('matches Slack huddle preview popups even when Chrome reports about:blank', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Slack - Huddle Preview',
     url: 'about:blank',
   }), 'Slack');
 });
 
+test('matches Webex browser meeting tabs', () => {
+  assert.equal(classifyBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Mostrom Room | Webex',
+    url: 'https://web.webex.com/meet/mostrom-room',
+  }), 'Cisco Webex');
+});
+
+test('matches Webex subdomain join routes', () => {
+  assert.equal(classifyBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Join session | Webex',
+    url: 'https://mostrom.webex.com/join/meeting-id',
+  }), 'Cisco Webex');
+});
+
+test('does not match Webex marketing pages', () => {
+  assert.equal(classifyBrowserMeetingTab({
+    browser: 'Google Chrome',
+    title: 'Webex Suite',
+    url: 'https://www.webex.com/',
+  }), null);
+});
+
 test('does not match Google Meet landing pages', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Google Meet',
     url: 'https://meet.google.com/',
@@ -131,7 +155,7 @@ test('does not match Google Meet landing pages', () => {
 });
 
 test('does not match generic Zoom web pages under /wc without a meeting join route', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Zoom Workplace',
     url: 'https://app.zoom.us/wc/home',
@@ -139,7 +163,7 @@ test('does not match generic Zoom web pages under /wc without a meeting join rou
 });
 
 test('does not match regular Slack workspace tabs', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'development (Channel) - Mostrom, LLC - Slack',
     url: 'https://app.slack.com/client/T05AXT2C65P/C0AGWNWB2MV',
@@ -147,7 +171,7 @@ test('does not match regular Slack workspace tabs', () => {
 });
 
 test('does not match Slack docs or feature pages that mention huddles', () => {
-  assert.equal(matchBrowserMeetingTab({
+  assert.equal(classifyBrowserMeetingTab({
     browser: 'Google Chrome',
     title: 'Use huddles in Slack',
     url: 'https://app.slack.com/features/huddles',

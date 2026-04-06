@@ -1,0 +1,14 @@
+{
+  "provider": "zoom-web",
+  "expected": "Zoom",
+  "url": "https://app.zoom.us/wc/home",
+  "joined_clicked": true,
+  "left_clicked": false,
+  "started_count": 0,
+  "ended_count": 0,
+  "changed_count": 0,
+  "started_platforms": [],
+  "ended_platforms": [],
+  "session_ids": [],
+  "pass": false
+}

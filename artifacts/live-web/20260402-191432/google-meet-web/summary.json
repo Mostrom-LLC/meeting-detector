@@ -1,0 +1,58 @@
+{
+  "total": 2,
+  "started": 1,
+  "ended": 1,
+  "firstStarted": {
+    "ts": 1775171673044,
+    "type": "started",
+    "event": "meeting_started",
+    "timestamp": "2026-04-02T23:14:33.044Z",
+    "platform": "Slack",
+    "confidence": "high",
+    "reason": "signal",
+    "session_id": "Slack:Slack",
+    "started_at": "2026-04-02T23:14:33Z",
+    "raw_signal": {
+      "event": "meeting_signal",
+      "timestamp": "2026-04-02T23:14:33Z",
+      "service": "Slack",
+      "verdict": "allowed",
+      "preflight": false,
+      "process": "Slack",
+      "pid": "",
+      "parent_pid": "",
+      "process_path": "",
+      "front_app": "Slack",
+      "window_title": "",
+      "session_id": "",
+      "camera_active": true
+    }
+  },
+  "firstEnded": {
+    "ts": 1775171703046,
+    "type": "ended",
+    "event": "meeting_ended",
+    "timestamp": "2026-04-02T23:15:03.046Z",
+    "platform": "Slack",
+    "confidence": "high",
+    "reason": "timeout",
+    "session_id": "Slack:Slack",
+    "started_at": "2026-04-02T23:14:33Z",
+    "ended_at": "2026-04-02T23:15:03.046Z",
+    "raw_signal": {
+      "event": "meeting_signal",
+      "timestamp": "2026-04-02T23:14:33Z",
+      "service": "Slack",
+      "verdict": "allowed",
+      "preflight": false,
+      "process": "Slack",
+      "pid": "",
+      "parent_pid": "",
+      "process_path": "",
+      "front_app": "Slack",
+      "window_title": "",
+      "session_id": "",
+      "camera_active": true
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "total": 2,
+  "started": [
+    {
+      "platform": "Microsoft Teams",
+      "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+      "started_at": "2026-04-04T12:41:51Z"
+    }
+  ],
+  "ended": [
+    {
+      "platform": "Microsoft Teams",
+      "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+      "started_at": "2026-04-04T12:41:51Z",
+      "ended_at": "2026-04-04T12:42:05.898Z",
+      "reason": "stop"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "run_root": "artifacts/live-web/20260403-061215-regression",
+  "scenarios": [
+    {
+      "scenario": "google-meet-b2b-1",
+      "total": 2,
+      "started": [
+        {
+          "platform": "Slack",
+          "session_id": "Slack:Slack",
+          "started_at": "2026-04-03T10:13:00Z"
+        }
+      ],
+      "ended": [
+        {
+          "platform": "Slack",
+          "session_id": "Slack:Slack",
+          "started_at": "2026-04-03T10:13:00Z",
+          "ended_at": "2026-04-03T10:13:30.742Z",
+          "reason": "timeout"
+        }
+      ]
+    },
+    {
+      "scenario": "google-meet-b2b-2",
+      "total": 2,
+      "started": [
+        {
+          "platform": "Slack",
+          "session_id": "Slack:Slack",
+          "started_at": "2026-04-03T10:14:10Z"
+        }
+      ],
+      "ended": [
+        {
+          "platform": "Slack",
+          "session_id": "Slack:Slack",
+          "started_at": "2026-04-03T10:14:10Z",
+          "ended_at": "2026-04-03T10:14:40.789Z",
+          "reason": "timeout"
+        }
+      ]
+    },
+    {
+      "scenario": "idle-baseline",
+      "total": 2,
+      "started": [
+        {
+          "platform": "Slack",
+          "session_id": "Slack:Slack",
+          "started_at": "2026-04-03T10:12:15Z"
+        }
+      ],
+      "ended": [
+        {
+          "platform": "Slack",
+          "session_id": "Slack:Slack",
+          "started_at": "2026-04-03T10:12:15Z",
+          "ended_at": "2026-04-03T10:12:45.909Z",
+          "reason": "timeout"
+        }
+      ]
+    }
+  ]
+}

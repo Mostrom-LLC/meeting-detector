@@ -1,0 +1,18 @@
+{
+  "$schema": "internal/native-provider-scenario-v1",
+  "provider": "webex-native",
+  "platform": "Cisco Webex",
+  "app_name": "Webex",
+  "description": "Scaffold flow for launching native Webex, joining the configured meeting URL, and asserting lifecycle events.",
+  "steps": [
+    { "action": "launch_app", "args": { "app_name": "Webex" } },
+    { "action": "focus_window", "args": { "app_name": "Webex" } },
+    { "action": "type_text", "args": { "text": "${E2E_WEBEX_NATIVE_URL}" } },
+    { "action": "press_key", "args": { "key": "return" } },
+    { "action": "maybe_fill_otp", "args": { "timeout_ms": 120000, "poll_ms": 2000, "submit_key": "return" }, "optional": true },
+    { "action": "click_text", "args": { "app_name": "Webex", "text": "Join meeting", "timeout_ms": 45000 } },
+    { "action": "assert_event", "args": { "event": "meeting_started", "platform": "Cisco Webex", "timeout_ms": 60000 } },
+    { "action": "click_text", "args": { "app_name": "Webex", "text": "Leave meeting", "timeout_ms": 30000 } },
+    { "action": "assert_event", "args": { "event": "meeting_ended", "platform": "Cisco Webex", "timeout_ms": 60000 } }
+  ]
+}

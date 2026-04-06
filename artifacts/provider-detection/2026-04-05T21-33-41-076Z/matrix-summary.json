@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-04-05T21:34:41.102Z",
+  "mode": "native",
+  "execution_style": "manual",
+  "dry_run": false,
+  "artifact_root": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-33-41-076Z",
+  "totals": {
+    "total": 4,
+    "pass": 0,
+    "fail": 4,
+    "skipped": 0,
+    "blocked": 0
+  },
+  "providers": [
+    {
+      "provider": "zoom",
+      "platform": "Zoom",
+      "mode": "native",
+      "status": "fail",
+      "reason": "Timed out waiting for meeting_started after 15000ms",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-33-41-076Z/zoom/events.ndjson",
+      "target_url": "https://zoom.us/j/123456789"
+    },
+    {
+      "provider": "teams",
+      "platform": "Microsoft Teams",
+      "mode": "native",
+      "status": "fail",
+      "reason": "Timed out waiting for meeting_started after 15000ms",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-33-41-076Z/teams/events.ndjson",
+      "target_url": "https://teams.live.com/v2/"
+    },
+    {
+      "provider": "slack-huddle",
+      "platform": "Slack",
+      "mode": "native",
+      "status": "fail",
+      "reason": "Timed out waiting for meeting_started after 15000ms",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-33-41-076Z/slack-huddle/events.ndjson",
+      "target_url": "https://app.slack.com/client"
+    },
+    {
+      "provider": "webex",
+      "platform": "Cisco Webex",
+      "mode": "native",
+      "status": "fail",
+      "reason": "Timed out waiting for meeting_started after 15000ms",
+      "started_count": 1,
+      "ended_count": 0,
+      "started_platforms": [
+        "Microsoft Teams"
+      ],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-33-41-076Z/webex/events.ndjson",
+      "target_url": "https://web.webex.com/"
+    }
+  ]
+}

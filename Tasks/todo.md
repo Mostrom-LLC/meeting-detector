@@ -1,5 +1,102 @@
 # Remaining Work
 
+## 2026-04-06 Disable Branch-Triggered Workflows
+
+- [x] Identify which `.github/workflows/*.yml` files are triggered by branch activity.
+- [x] Comment out the branch-trigger blocks without deleting them.
+- [x] Verify the edited workflow files and record the result.
+
+### Review
+
+- Commented the branch-trigger `on:` blocks in `.github/workflows/ci.yml` and `.github/workflows/claude-code-review.yml`.
+- Left non-branch workflows unchanged: `publish.yml` is tag-triggered, `meeting-e2e.yml` is schedule/dispatch-triggered, and `claude.yml` is comment/review/issue-triggered.
+- Verification: inspected both files after patching and confirmed the branch trigger lines remain present as comments rather than being deleted.
+
+## 2026-04-04 Full Live Provider Matrix (Resume)
+
+- [x] Reconfirm idle baseline on patched detector in live runtime.
+- [x] Run Google Meet web live join/leave and capture lifecycle artifacts.
+- [x] Run Zoom web live join/leave and capture lifecycle artifacts.
+- [x] Run Teams web live flow to joined state (or capture auth blocker evidence) with artifacts.
+- [x] Run Slack huddle web flow and capture lifecycle artifacts.
+- [x] Run Webex web flow to joined state (or capture blocker evidence) with artifacts.
+- [ ] Run native matrix entrypoints (Teams/Zoom/Slack/Webex) and capture pass/fail evidence per provider.
+- [x] Produce consolidated matrix report with regression verdicts.
+
+### 2026-04-04 Resume Review
+
+- Added/verified regression coverage for Teams virtual audio driver artifacts and patched detector filtering in `src/detector.ts` (`process/front_app/process_path/session_id` marker suppression).
+- Verification passed: `npm test` => `104/104`.
+- Live web matrix executed on existing `cmux` browser `surface:3` with artifacts at:
+  - `artifacts/live-web/20260404-085434-matrix-live-baseurls/matrix-summary.json`
+  - Per-provider logs under `artifacts/live-web/20260404-085434-matrix-live-baseurls/*`.
+- Live matrix outcome: `0/5` providers emitted lifecycle events (`meeting_started`/`meeting_ended` all zero).
+- Focused Google Meet re-run (`artifacts/live-web/20260404-090723-google-meet-focused/`) successfully clicked:
+  - `video_call New meeting`
+  - `Start an instant meeting`
+  - still emitted `0` lifecycle events.
+- Runtime evidence suggests meeting media activation did not satisfy detector mic gate during these flows:
+  - `./scripts/media-state` returned `{"camera":true,"mic":false}` immediately after the focused run.
+
+## 2026-04-02 Robust Meeting Start/End + Automation Plan
+
+- [x] Capture spec for robust native + web meeting lifecycle detection and full provider matrix coverage.
+- [x] Write implementation plan at `docs/superpowers/plans/2026-04-02-meeting-detection-robustness.md`.
+- [x] Execute Task 1: session timeline model with explicit `started_at` / `ended_at`.
+- [x] Execute Task 2: unified browser classifier with Webex parity.
+- [x] Execute Task 3: hardened native attribution for Teams/Zoom/Slack Huddle/Webex.
+- [x] Execute Task 4: provider-matrix lifecycle end correctness.
+- [x] Execute Task 5: Playwright web E2E suite for Meet/Zoom/Teams/Slack/Webex.
+- [x] Execute Task 6: native-devtools MCP native E2E suite for Teams/Zoom/Slack/Webex.
+- [ ] Execute Task 7: CI wiring + docs + verification bundle.
+
+## 2026-04-03 Idle Slack False-Positive Bugfix
+
+- [x] Add a failing regression test that reproduces native probe false-positive Slack detection with idle window evidence.
+- [x] Delegate at least two fix strategies to subagents and compare outcomes.
+- [x] Integrate minimal-risk fix: suppress Slack native classification when title evidence is empty.
+- [x] Rework native probe Slack tests to assert real probe behavior rather than fully mocked signals.
+- [x] Run targeted regression tests and full `npm test` to verify no CI breakage.
+
+### Task 7 Checklist
+
+- [x] Add `scripts/e2e/validate-env.sh` with `web`, `native`, and `all` modes.
+- [x] Wire `npm run e2e:validate-env` in `package.json`.
+- [x] Create `docs/testing/meeting-e2e.md` with web/native commands, dry-run behavior, and env requirements.
+- [x] Update `README.md` with operator-facing E2E entry points and validation notes.
+- [x] Add `.github/workflows/meeting-e2e.yml` with macOS web E2E and workflow-dispatch-only self-hosted native E2E.
+- [x] Verify `bash scripts/e2e/validate-env.sh web` fails in the current environment because the web URL contract is not populated.
+- [x] Verify `npm run build:ts`.
+- [x] Verify `npm test`.
+
+### Task 6 Checklist
+
+- [x] Define the native MCP scenario contract and provider scenario files for Teams, Zoom, Slack Huddle, and Webex.
+- [x] Implement the stdio MCP client, native driver, scenario runner, artifact writer, and native CLI entrypoint.
+- [x] Implement bounded OTP polling for fresh codes with explicit configuration errors.
+- [x] Add `e2e:native` script plus MCP SDK dependency in `package.json`.
+- [x] Verify `npm run build:ts`.
+- [x] Verify `node scripts/e2e/run-native-mcp-e2e.mjs --help`.
+- [x] Verify `node --input-type=module -e "import('./scripts/tools/otp-client.mjs').then(()=>console.log('otp-client-ok'))"`.
+
+### Review
+
+- Plan authored and staged for execution handoff; pending plan-review subagent approval.
+- Task 2 and Task 3 completed with shared browser/native classifier modules and detector call-site migration.
+- Added Webex browser coverage while preserving Meet, Zoom, Teams, and Slack browser matching parity.
+- Task 4 completed with shared test helpers plus provider-matrix lifecycle coverage for Google Meet, Zoom, Microsoft Teams, Slack, and Cisco Webex.
+- Task 5 completed with a Playwright provider matrix, an in-process detector harness exposing `waitFor(event)`, a web E2E runner, and an explicit `.env.e2e` contract for Google Meet, Zoom, Teams, Slack Huddle, and Webex.
+- Task 6 completed with a native MCP scaffold: provider scenario JSON contracts, a guarded native CLI, stdio MCP client and driver wrappers, per-step artifact capture, and detector-harness assertions for `meeting_started` and `meeting_ended`.
+- The native runner is non-destructive by default: live automation requires `--confirm-live` or `E2E_NATIVE_CONFIRM=1`, while `--dry-run` validates scenarios without touching native apps.
+- OTP polling now waits for a fresh six-digit code using bounded timeout and retry semantics, and missing native scenario env vars fail with explicit actionable errors.
+- Task 7 landed with an env validator, an operator guide, README entry points, and a workflow that keeps web E2E on macOS while gating native E2E behind workflow dispatch on self-hosted runners.
+- Verification: `npm run build:ts` passed; `node --test test/lifecycle.session-timeline.test.mjs test/lifecycle.provider-matrix.test.mjs test/detector.lifecycle.test.mjs` passed `60/60`; `npm test` passed `97/97`.
+- Verification: `npm run build:ts` passed; `node --test test/browser-tab-match.test.mjs test/browser-platform-classifier.test.mjs test/browser-probe-targets.test.mjs test/native-platform-classifier.test.mjs` passed `35/35`; `node --test test/detector.lifecycle.test.mjs` passed `54/54`.
+- Verification: `npm run build:ts` passed; `node --test test/detector.lifecycle.test.mjs` passed `54/54`; `npx playwright test test/e2e/web/providers.spec.ts --list` listed 5 provider tests.
+- Verification: `npm run build:ts` passed; `node scripts/e2e/run-native-mcp-e2e.mjs --help` printed native runner usage; `node --input-type=module -e "import('./scripts/tools/otp-client.mjs').then(()=>console.log('otp-client-ok'))"` printed `otp-client-ok`.
+- Verification: `env E2E_TEAMS_NATIVE_URL= node scripts/e2e/run-native-mcp-e2e.mjs --dry-run --provider teams-native` failed with `Missing environment variable E2E_TEAMS_NATIVE_URL ...`, confirming actionable config errors without starting a real meeting.
+- Verification: `bash scripts/e2e/validate-env.sh web` is expected to fail until the web contract is populated; `npm run build:ts` and `npm test` remain green after Task 7 wiring.
+
 ## Release Blockers
 
 - [ ] `Slack` native: start a real native huddle in the signed-in `Mostrom, LLC` workspace, confirm detector emits `Slack`, then leave the huddle.
@@ -99,3 +196,90 @@ Full technical design: [`tasks/signal-detection-hardening.md`](./signal-detectio
 ### Review Notes
 - Verified with `npm test`; suite currently fails the pre-existing backgrounded-platform test after this commit.
 - Reproduced a new stop/shutdown race where an in-flight native app probe still emits `meeting_started` after `stop()`.
+
+## 2026-04-04 Live Provider Matrix Checklist Execution (this run)
+
+- [x] Task 1 preflight environment and credentials
+- [x] Task 2 launch Chrome CDP session and verify
+- [ ] Task 3 verify web E2E CDP adaptation and single-provider run
+- [ ] Task 4 provisioned URL check and web matrix run
+- [ ] Task 5 native matrix run (MCP)
+- [x] Task 6 lifecycle evidence + idle regression validation
+- [x] Task 7 command/policy verification and consolidated report
+
+### Review (this run)
+
+- Task 1:
+  - `npm run build:ts` passed.
+  - `./scripts/media-state` baseline: `{"camera":true,"mic":false}`.
+  - OTP listener blocked: `start-otp-listener.sh` requires `OTP_EMAIL` / `OTP_EMAIL_PASSWORD`.
+  - OTP retrieval path works: `scripts/tools/get-otp.sh` returned a 6-digit code.
+- Task 2:
+  - Chrome CDP profile mapping already configured (`Chrome -> ChromeCDP2` symlink).
+  - Relaunch via `open -a "Google Chrome" --args --remote-debugging-port=9222` succeeded.
+  - `curl http://localhost:9222/json/version` returned Browser + `webSocketDebuggerUrl`.
+  - CDP smoke checks passed: Google Meet title loaded as signed-in and instant meeting URL opened.
+- Task 3 blocker:
+  - Live Playwright `Google Meet` test starts, then stalls with no further output; process had to be terminated twice.
+  - Reproduced both via `node scripts/e2e/run-web-e2e.mjs --grep "Google Meet"` and direct `npx playwright test ... --grep "Google Meet"`.
+- Task 4 blocker:
+  - `.env/.env.e2e` missing all `E2E_*_URL` provider variables.
+  - Full `node scripts/e2e/run-web-e2e.mjs` also stalls immediately after worker start; terminated.
+- Task 5 blocker:
+  - `node scripts/e2e/run-native-mcp-e2e.mjs --help` works.
+  - Live run blocked early: missing required `NATIVE_MCP_SERVER_CMD`.
+- Task 6:
+  - Idle regression rerun passed: `node scripts/live-test.mjs --duration 25 ...` -> `Started: 0`, `Ended: 0`.
+  - Lifecycle correctness verified from existing artifact `artifacts/live-web/google-meet-web/events.ndjson`:
+    - one `meeting_started` + one `meeting_ended`
+    - matching `started_at`
+    - `ended_at` later than `started_at`
+- Task 7:
+  - Consolidated execution report written to `artifacts/live-web/20260404-checklist-execution-report.md`.
+
+## 2026-04-05 Provider Detection (Web + Native) Execution
+
+- [x] Task 1: 5-provider detection contract + classifier coverage.
+- [x] Task 2: detector arbitration hardening for cross-platform native handoff.
+- [x] Task 3: provider detection matrix runner (`detect:matrix*`) + env wiring.
+- [x] Task 4: run env validation and detection matrix commands; capture blockers/evidence.
+- [x] Task 5: update docs to detection-first workflow.
+
+### Detection Surface Status (Current Environment)
+
+| Provider | Web | Native | Evidence | Notes |
+|---|---|---|---|---|
+| Google Meet | SKIPPED | N/A | `artifacts/provider-detection/2026-04-05T06-31-48-313Z/matrix-summary.json` | `E2E_GOOGLE_MEET_URL` missing |
+| Zoom | SKIPPED | SKIPPED | `artifacts/provider-detection/2026-04-05T06-31-48-313Z/matrix-summary.json`, `artifacts/provider-detection/2026-04-05T06-31-48-416Z/matrix-summary.json` | web/native URLs missing |
+| Microsoft Teams | SKIPPED | SKIPPED | `artifacts/provider-detection/2026-04-05T06-31-48-313Z/matrix-summary.json`, `artifacts/provider-detection/2026-04-05T06-31-48-416Z/matrix-summary.json` | web/native URLs missing |
+| Slack (Huddle) | SKIPPED | SKIPPED | `artifacts/provider-detection/2026-04-05T06-31-48-313Z/matrix-summary.json`, `artifacts/provider-detection/2026-04-05T06-31-48-416Z/matrix-summary.json` | web/native URLs missing |
+| Cisco Webex | SKIPPED | SKIPPED | `artifacts/provider-detection/2026-04-05T06-31-48-313Z/matrix-summary.json`, `artifacts/provider-detection/2026-04-05T06-31-48-416Z/matrix-summary.json` | web/native URLs missing |
+
+### Blockers
+
+- Missing env contract keys from `bash scripts/e2e/validate-env.sh all`:
+  - `E2E_GOOGLE_MEET_URL`, `E2E_ZOOM_WEB_URL`, `E2E_TEAMS_WEB_URL`, `E2E_SLACK_HUDDLE_WEB_URL`, `E2E_WEBEX_WEB_URL`
+  - `E2E_TEAMS_NATIVE_URL`, `E2E_ZOOM_NATIVE_URL`, `E2E_SLACK_HUDDLE_NATIVE_URL` (or `E2E_SLACK_NATIVE_URL`), `E2E_WEBEX_NATIVE_URL`
+  - `NATIVE_MCP_SERVER_CMD`, `GOOGLE_VOICE_NUMBER`, Google auth keys
+
+### Readiness Verdict
+
+- **NOT READY FOR LIVE PASS CLAIM** in this environment due to missing provider URLs/native MCP prerequisites.
+- **READY FOR EXECUTION** once env is populated: `detect:matrix:web -- --manual` and `detect:matrix:native -- --manual` now produce per-provider lifecycle artifacts and matrix summaries.
+
+### 2026-04-05 Live Matrix Run (User-Requested Self-Filled Env)
+
+- Populated `.env.e2e` with runnable defaults + credentials aliases + `NATIVE_MCP_SERVER_CMD=native-devtools-mcp`.
+- Executed manual detection runs with 15s join/leave windows.
+
+Web result:
+- Artifact: `artifacts/provider-detection/2026-04-05T21-27-52-163Z/matrix-summary.json`
+- Outcome: `0/5` pass, all providers timed out waiting for `meeting_started`.
+
+Native result:
+- Artifact: `artifacts/provider-detection/2026-04-05T21-33-41-076Z/matrix-summary.json`
+- Outcome: `0/4` pass.
+- Notable signal: during Webex-native window, one `meeting_started` was observed for `Microsoft Teams` (cross-platform false attribution in live environment), then timeout for expected Webex end-to-end lifecycle.
+
+Runner reliability fix:
+- Updated `scripts/e2e/run-provider-detection-matrix.mjs` to force CLI termination after summary write to avoid lingering detector handles.

@@ -1,0 +1,116 @@
+{
+  "run_root": "artifacts/live-web/20260404-084045-matrix-resume",
+  "scenarios": [
+    {
+      "scenario": "google-meet-web",
+      "total": 2,
+      "started": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:41:51Z"
+        }
+      ],
+      "ended": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:41:51Z",
+          "ended_at": "2026-04-04T12:42:05.898Z",
+          "reason": "stop"
+        }
+      ],
+      "artifacts": {
+        "summary": "artifacts/live-web/20260404-084045-matrix-resume/google-meet-web/summary.json",
+        "cmux": "artifacts/live-web/20260404-084045-matrix-resume/google-meet-web/cmux.log",
+        "detector": "artifacts/live-web/20260404-084045-matrix-resume/google-meet-web/detector.log"
+      }
+    },
+    {
+      "scenario": "slack-huddle-web",
+      "total": 2,
+      "started": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:44:59Z"
+        }
+      ],
+      "ended": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:44:59Z",
+          "ended_at": "2026-04-04T12:46:06.096Z",
+          "reason": "stop"
+        }
+      ],
+      "artifacts": {
+        "summary": "artifacts/live-web/20260404-084045-matrix-resume/slack-huddle-web/summary.json",
+        "cmux": "artifacts/live-web/20260404-084045-matrix-resume/slack-huddle-web/cmux.log",
+        "detector": "artifacts/live-web/20260404-084045-matrix-resume/slack-huddle-web/detector.log"
+      }
+    },
+    {
+      "scenario": "teams-web",
+      "total": 2,
+      "started": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:43:31Z"
+        }
+      ],
+      "ended": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:43:31Z",
+          "ended_at": "2026-04-04T12:44:46.031Z",
+          "reason": "stop"
+        }
+      ],
+      "artifacts": {
+        "summary": "artifacts/live-web/20260404-084045-matrix-resume/teams-web/summary.json",
+        "cmux": "artifacts/live-web/20260404-084045-matrix-resume/teams-web/cmux.log",
+        "detector": "artifacts/live-web/20260404-084045-matrix-resume/teams-web/detector.log"
+      }
+    },
+    {
+      "scenario": "webex-web",
+      "total": 0,
+      "started": [],
+      "ended": [],
+      "artifacts": {
+        "summary": "artifacts/live-web/20260404-084045-matrix-resume/webex-web/summary.json",
+        "cmux": "artifacts/live-web/20260404-084045-matrix-resume/webex-web/cmux.log",
+        "detector": "artifacts/live-web/20260404-084045-matrix-resume/webex-web/detector.log"
+      }
+    },
+    {
+      "scenario": "zoom-web",
+      "total": 2,
+      "started": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:42:08Z"
+        }
+      ],
+      "ended": [
+        {
+          "platform": "Microsoft Teams",
+          "session_id": "Microsoft Teams:Core Audio Driver (MSTeamsAudioDevice.driver)",
+          "started_at": "2026-04-04T12:42:08Z",
+          "ended_at": "2026-04-04T12:43:25.964Z",
+          "reason": "stop"
+        }
+      ],
+      "artifacts": {
+        "summary": "artifacts/live-web/20260404-084045-matrix-resume/zoom-web/summary.json",
+        "cmux": "artifacts/live-web/20260404-084045-matrix-resume/zoom-web/cmux.log",
+        "detector": "artifacts/live-web/20260404-084045-matrix-resume/zoom-web/detector.log"
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-04-05T21:36:47.520Z",
+  "mode": "web",
+  "execution_style": "manual",
+  "dry_run": true,
+  "artifact_root": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-36-47-516Z",
+  "totals": {
+    "total": 5,
+    "pass": 0,
+    "fail": 0,
+    "skipped": 5,
+    "blocked": 0
+  },
+  "providers": [
+    {
+      "provider": "google-meet",
+      "platform": "Google Meet",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Dry-run mode: detector flow not executed",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-36-47-516Z/google-meet/events.ndjson",
+      "target_url": "https://meet.google.com/landing"
+    },
+    {
+      "provider": "zoom",
+      "platform": "Zoom",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Dry-run mode: detector flow not executed",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-36-47-516Z/zoom/events.ndjson",
+      "target_url": "https://app.zoom.us/wc/home"
+    },
+    {
+      "provider": "teams",
+      "platform": "Microsoft Teams",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Dry-run mode: detector flow not executed",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-36-47-516Z/teams/events.ndjson",
+      "target_url": "https://teams.live.com/v2/"
+    },
+    {
+      "provider": "slack-huddle",
+      "platform": "Slack",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Dry-run mode: detector flow not executed",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-36-47-516Z/slack-huddle/events.ndjson",
+      "target_url": "https://app.slack.com/client"
+    },
+    {
+      "provider": "webex",
+      "platform": "Cisco Webex",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Dry-run mode: detector flow not executed",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-36-47-516Z/webex/events.ndjson",
+      "target_url": "https://web.webex.com/"
+    }
+  ]
+}

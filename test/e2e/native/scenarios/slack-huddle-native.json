@@ -1,0 +1,17 @@
+{
+  "$schema": "internal/native-provider-scenario-v1",
+  "provider": "slack-huddle-native",
+  "platform": "Slack",
+  "app_name": "Slack",
+  "description": "Scaffold flow for opening a native Slack huddle, joining, and asserting lifecycle events.",
+  "steps": [
+    { "action": "launch_app", "args": { "app_name": "Slack" } },
+    { "action": "focus_window", "args": { "app_name": "Slack" } },
+    { "action": "type_text", "args": { "text": "${E2E_SLACK_HUDDLE_NATIVE_URL}" } },
+    { "action": "press_key", "args": { "key": "return" } },
+    { "action": "click_text", "args": { "app_name": "Slack", "text": "Join huddle", "timeout_ms": 45000 } },
+    { "action": "assert_event", "args": { "event": "meeting_started", "platform": "Slack", "timeout_ms": 60000 } },
+    { "action": "click_text", "args": { "app_name": "Slack", "text": "Leave", "timeout_ms": 30000 } },
+    { "action": "assert_event", "args": { "event": "meeting_ended", "platform": "Slack", "timeout_ms": 60000 } }
+  ]
+}

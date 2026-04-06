@@ -1,0 +1,14 @@
+{
+  "provider": "webex",
+  "platform": "Cisco Webex",
+  "mode": "web",
+  "status": "skipped",
+  "reason": "Dry-run mode: detector flow not executed",
+  "started_count": 0,
+  "ended_count": 0,
+  "started_platforms": [],
+  "ended_platforms": [],
+  "pass": false,
+  "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-36-47-516Z/webex/events.ndjson",
+  "target_url": "https://web.webex.com/"
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "internal/native-provider-scenario-v1",
+  "provider": "zoom-native",
+  "platform": "Zoom",
+  "app_name": "zoom.us",
+  "description": "Scaffold flow for opening Zoom native, joining the configured meeting URL, and asserting lifecycle boundaries.",
+  "steps": [
+    { "action": "launch_app", "args": { "app_name": "zoom.us" } },
+    { "action": "focus_window", "args": { "app_name": "zoom.us" } },
+    { "action": "type_text", "args": { "text": "${E2E_ZOOM_NATIVE_URL}" } },
+    { "action": "press_key", "args": { "key": "return" } },
+    { "action": "click_text", "args": { "app_name": "zoom.us", "text": "Join Audio by Computer", "timeout_ms": 30000 }, "optional": true },
+    { "action": "click_text", "args": { "app_name": "zoom.us", "text": "Join", "timeout_ms": 45000 } },
+    { "action": "assert_event", "args": { "event": "meeting_started", "platform": "Zoom", "timeout_ms": 60000 } },
+    { "action": "click_text", "args": { "app_name": "zoom.us", "text": "Leave", "timeout_ms": 30000 } },
+    { "action": "click_text", "args": { "app_name": "zoom.us", "text": "Leave Meeting", "timeout_ms": 10000 }, "optional": true },
+    { "action": "assert_event", "args": { "event": "meeting_ended", "platform": "Zoom", "timeout_ms": 60000 } }
+  ]
+}

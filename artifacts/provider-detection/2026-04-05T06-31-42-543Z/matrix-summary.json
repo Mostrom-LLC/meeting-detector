@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-04-05T06:31:42.546Z",
+  "mode": "web",
+  "execution_style": "manual",
+  "dry_run": true,
+  "artifact_root": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T06-31-42-543Z",
+  "totals": {
+    "total": 5,
+    "pass": 0,
+    "fail": 0,
+    "skipped": 5,
+    "blocked": 0
+  },
+  "providers": [
+    {
+      "provider": "google-meet",
+      "platform": "Google Meet",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Missing E2E_GOOGLE_MEET_URL",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T06-31-42-543Z/google-meet/events.ndjson"
+    },
+    {
+      "provider": "zoom",
+      "platform": "Zoom",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Missing E2E_ZOOM_WEB_URL",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T06-31-42-543Z/zoom/events.ndjson"
+    },
+    {
+      "provider": "teams",
+      "platform": "Microsoft Teams",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Missing E2E_TEAMS_WEB_URL",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T06-31-42-543Z/teams/events.ndjson"
+    },
+    {
+      "provider": "slack-huddle",
+      "platform": "Slack",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Missing E2E_SLACK_HUDDLE_WEB_URL",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T06-31-42-543Z/slack-huddle/events.ndjson"
+    },
+    {
+      "provider": "webex",
+      "platform": "Cisco Webex",
+      "mode": "web",
+      "status": "skipped",
+      "reason": "Missing E2E_WEBEX_WEB_URL",
+      "started_count": 0,
+      "ended_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "pass": false,
+      "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T06-31-42-543Z/webex/events.ndjson"
+    }
+  ]
+}

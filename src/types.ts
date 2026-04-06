@@ -46,6 +46,9 @@ export interface MeetingLifecycleEvent {
   timestamp: string;
   platform: MeetingPlatform;
   previous_platform?: MeetingPlatform;
+  session_id?: string;
+  started_at?: string;
+  ended_at?: string;
   confidence: 'high' | 'medium' | 'low';
   reason: 'signal' | 'switch' | 'timeout' | 'stop';
   raw_signal?: MeetingSignal;

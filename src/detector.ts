@@ -13,11 +13,28 @@ import {
   MeetingPlatform,
 } from './types.js';
 import {
+  createSessionTimeline,
+  endSessionTimeline,
+  touchSessionTimeline,
+  type SessionTimelineState,
+} from './lifecycle/session-timeline.js';
+import {
   tryLoadNative,
   type NativeModule,
   type NativeDetector,
   isNativePlatformSupported,
 } from './native-bridge.js';
+import {
+  classifyBrowserMeeting,
+  classifyBrowserMeetingTab,
+  type BrowserTabInfo,
+} from './classifiers/browser-platform.js';
+import {
+  classifyNativeMeeting,
+  classifyNativeProcessCommand,
+  classifyPlatformFromNativeApp,
+  NATIVE_STARTUP_PROBE_TARGETS,
+} from './classifiers/native-platform.js';
 
 interface SessionInfo {
   lastSeen: number;
@@ -41,12 +58,7 @@ interface ActiveMeetingState {
   lastSeen: number;
   confidence: MeetingLifecycleEvent['confidence'];
   signal: MeetingSignal;
-}
-
-interface BrowserTabInfo {
-  browser: string;
-  title: string;
-  url: string;
+  timeline: SessionTimelineState;
 }
 
 interface BrowserMeetingHint {
@@ -109,143 +121,12 @@ export function getBrowserProbeTargets(
   return BROWSER_PROBE_SCRIPTS.filter(([browser]) => running.has(browser.toLowerCase()));
 }
 
-function isGoogleMeetMeetingUrl(url: string): boolean {
-  return /meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:[/?#]|$)/.test(url);
-}
-
-function parseBrowserUrl(url: string): URL | null {
-  try {
-    return new URL(url);
-  } catch {
-    return null;
-  }
-}
-
-function isZoomMeetingUrl(url: string): boolean {
-  const parsed = parseBrowserUrl(url);
-  if (!parsed) {
-    return false;
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (host !== 'zoom.us' && host !== 'app.zoom.us') {
-    return false;
-  }
-
-  const path = parsed.pathname.toLowerCase().replace(/\/+$/, '');
-  return (
-    /^\/wc\/\d+\/(?:join|start)$/.test(path) ||
-    /^\/wc\/join\/\d+$/.test(path) ||
-    /^\/j\/\d+$/.test(path)
-  );
-}
-
-function isTeamsMeetingUrl(url: string): boolean {
-  const parsed = parseBrowserUrl(url);
-  if (!parsed) {
-    return false;
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (host !== 'teams.live.com' && host !== 'teams.microsoft.com') {
-    return false;
-  }
-
-  const path = parsed.pathname.toLowerCase().replace(/\/+$/, '');
-  if (path === '/light-meetings' || path === '/light-meetings/launch') {
-    return true;
-  }
-  if (path.startsWith('/l/meetup-join')) {
-    return true;
-  }
-  if (path.startsWith('/meet')) {
-    return true;
-  }
-  if (path === '/dl/launcher/launcher.html') {
-    const launchUrl = decodeURIComponent(parsed.searchParams.get('url') || '').toLowerCase();
-    return parsed.searchParams.get('type') === 'meetup-join' || launchUrl.includes('/l/meetup-join/');
-  }
-  if (path === '/v2') {
-    return parsed.searchParams.get('meetingjoin') === 'true';
-  }
-
-  return false;
-}
-
-function isTeamsMeetingTitle(title: string): boolean {
-  if (!title.includes('microsoft teams')) {
-    return false;
-  }
-
-  if (title.includes('meeting with')) {
-    return true;
-  }
-
-  const segments = title
-    .split('|')
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  return segments.length >= 3 && segments[0] === 'meet' && segments.at(-1) === 'microsoft teams';
-}
-
-function isSlackHuddleTab(url: string, title: string): boolean {
-  const looksLikeSlackHuddleWindow =
-    title.startsWith('slack - huddle preview') ||
-    title.startsWith('huddle:');
-
-  if (url === 'about:blank') {
-    return looksLikeSlackHuddleWindow;
-  }
-
-  if (!url.includes('app.slack.com/')) {
-    return false;
-  }
-
-  const hasExplicitHuddleRoute =
-    /\/huddle(?:[/?#]|$)/.test(url) ||
-    /[?&]huddle_thread=/.test(url);
-
-  return (
-    (url.includes('app.slack.com/client/') && title.includes('huddle')) ||
-    hasExplicitHuddleRoute ||
-    looksLikeSlackHuddleWindow
-  );
-}
-
 export function matchBrowserMeetingUrl(urlInput: string, titleInput = ''): MeetingPlatform | null {
-  const url = (urlInput || '').trim().toLowerCase();
-  const title = (titleInput || '').trim().toLowerCase();
-
-  if (!url) {
-    return null;
-  }
-
-  if (isGoogleMeetMeetingUrl(url)) {
-    return 'Google Meet';
-  }
-
-  if (isZoomMeetingUrl(url)) {
-    return 'Zoom';
-  }
-
-  if (isTeamsMeetingUrl(url)) {
-    return 'Microsoft Teams';
-  }
-
-  if (url.includes('teams.live.com/v2/') && isTeamsMeetingTitle(title)) {
-    return 'Microsoft Teams';
-  }
-
-  if (isSlackHuddleTab(url, title)) {
-    return 'Slack';
-  }
-
-  return null;
+  return classifyBrowserMeeting(urlInput, titleInput);
 }
 
 export function matchBrowserMeetingTab(tab: BrowserTabInfo): MeetingPlatform | null {
-  return matchBrowserMeetingUrl(tab.url, tab.title);
+  return classifyBrowserMeetingTab(tab);
 }
 
 export class MeetingDetector extends EventEmitter {
@@ -275,15 +156,6 @@ export class MeetingDetector extends EventEmitter {
     'cleanshot x',
     'snagit',
   ]);
-
-  private static readonly NATIVE_MEETING_PROCESSES: Array<[string[], MeetingPlatform]> = [
-    [['msteams', 'microsoft teams'], 'Microsoft Teams'],
-    [['slack'], 'Slack'],
-    [['zoom.us'], 'Zoom'],
-    [['webex', 'cisco webex'], 'Cisco Webex'],
-    [['discord'], 'Discord'],
-    [['facetime'], 'FaceTime'],
-  ];
 
   private process?: ChildProcess;
   private options: Required<MeetingDetectorOptions>;
@@ -450,7 +322,16 @@ export class MeetingDetector extends EventEmitter {
         this.meetingEndTimer = undefined;
       }
       if (this.activeMeeting) {
-        this.emitMeetingLifecycle('meeting_ended', this.activeMeeting.platform, this.activeMeeting.confidence, 'stop', this.activeMeeting.signal);
+        const endedTimeline = endSessionTimeline(this.activeMeeting.timeline);
+        this.emitMeetingLifecycle(
+          'meeting_ended',
+          this.activeMeeting.platform,
+          this.activeMeeting.confidence,
+          'stop',
+          this.activeMeeting.signal,
+          undefined,
+          endedTimeline
+        );
         this.activeMeeting = null;
       }
       if (this.browserProbeInterval) {
@@ -667,7 +548,7 @@ export class MeetingDetector extends EventEmitter {
     const now = Date.now();
 
     for (const tab of tabs) {
-      const platform = matchBrowserMeetingTab(tab);
+      const platform = classifyBrowserMeetingTab(tab);
       if (!platform) {
         continue;
       }
@@ -817,35 +698,6 @@ export class MeetingDetector extends EventEmitter {
     }
   }
 
-  private looksLikeActiveNativeMeeting(
-    platform: MeetingPlatform,
-    windowTitle: string,
-    micActive: boolean,
-    cameraActive: boolean
-  ): boolean {
-    const title = windowTitle.trim().toLowerCase();
-
-    if (!micActive) {
-      return false;
-    }
-
-    switch (platform) {
-      case 'Microsoft Teams':
-        if (title.startsWith('chat')) {
-          return false;
-        }
-        return true;
-      case 'Zoom':
-        return true;
-      case 'Slack':
-        return title.includes('huddle');
-      case 'Cisco Webex':
-        return title.includes('meeting') || title.includes('call');
-      default:
-        return true;
-    }
-  }
-
   private async findRunningMeetingProcesses(): Promise<Array<{ process: string; platform: MeetingPlatform }>> {
     try {
       const { stdout } = await execFileAsync(
@@ -868,12 +720,10 @@ export class MeetingDetector extends EventEmitter {
         // Skip recorder processes
         if (MeetingDetector.RECORDER_PROCESSES.has(basename)) continue;
 
-        for (const [patterns, platform] of MeetingDetector.NATIVE_MEETING_PROCESSES) {
-          if (patterns.some((p) => basename.includes(p))) {
-            if (!found.has(platform)) {
-              found.set(platform, command.split('/').pop() || command);
-            }
-            break;
+        const platform = classifyNativeProcessCommand(basename);
+        if (platform) {
+          if (!found.has(platform)) {
+            found.set(platform, command.split('/').pop() || command);
           }
         }
       }
@@ -913,6 +763,9 @@ export class MeetingDetector extends EventEmitter {
       return null;
     }
 
+    const frontApp = await this.probeFrontmostAppName();
+    const frontLower = frontApp.toLowerCase();
+
     // Suppress platforms that have a browser hint for the SAME platform (browser
     // detection handles those) and platforms that would conflict with an already-
     // active meeting on a different platform. An idle Teams process running while
@@ -922,10 +775,17 @@ export class MeetingDetector extends EventEmitter {
       if (this.hasBrowserHintForPlatform(mp.platform)) {
         return false;
       }
-      // If there's an active meeting on a DIFFERENT platform, suppress this
-      // candidate unless it is the frontmost app (indicating the user switched).
+      // If there's an active meeting on a DIFFERENT platform, only allow this
+      // candidate when frontmost app evidence indicates the user has actually
+      // switched to that platform.
       if (this.activeMeeting && this.activeMeeting.platform !== mp.platform) {
-        return false;
+        const processLower = mp.process.toLowerCase();
+        const frontMatchesProcess =
+          (frontLower && frontLower.includes(processLower)) ||
+          (processLower && processLower.includes(frontLower));
+        if (!frontMatchesProcess && !this.isFrontAppConsistentWithService(frontApp, mp.platform)) {
+          return false;
+        }
       }
       return true;
     });
@@ -937,8 +797,6 @@ export class MeetingDetector extends EventEmitter {
     // Pick best candidate; use frontmost app as optional tiebreak
     let selected = nativeCandidates[0];
     if (nativeCandidates.length > 1) {
-      const frontApp = await this.probeFrontmostAppName();
-      const frontLower = frontApp.toLowerCase();
       const frontMatch = nativeCandidates.find(
         (c) => frontLower.includes(c.process.toLowerCase()) || c.process.toLowerCase().includes(frontLower)
       );
@@ -947,10 +805,23 @@ export class MeetingDetector extends EventEmitter {
       }
     }
 
+    const frontWindowTitle = this.isFrontAppConsistentWithService(frontApp, selected.platform)
+      ? await this.probeFrontWindowTitle()
+      : '';
+    const inferredPlatform = classifyNativeMeeting({
+      process: selected.process,
+      windowTitle: frontWindowTitle,
+      micActive,
+      cameraActive,
+    });
+    if (!inferredPlatform) {
+      return null;
+    }
+
     return {
       event: 'meeting_signal',
       timestamp: new Date().toISOString().slice(0, 19) + 'Z',
-      service: selected.platform,
+      service: inferredPlatform,
       verdict: 'allowed',
       preflight: false,
       process: selected.process,
@@ -958,7 +829,7 @@ export class MeetingDetector extends EventEmitter {
       parent_pid: '',
       process_path: '',
       front_app: selected.platform,
-      window_title: '',
+      window_title: frontWindowTitle,
       session_id: '',
       camera_active: cameraActive,
       mic_active: micActive,
@@ -1187,7 +1058,16 @@ export class MeetingDetector extends EventEmitter {
         this.meetingEndTimer = undefined;
       }
       if (this.activeMeeting) {
-        this.emitMeetingLifecycle('meeting_ended', this.activeMeeting.platform, this.activeMeeting.confidence, 'stop', this.activeMeeting.signal);
+        const endedTimeline = endSessionTimeline(this.activeMeeting.timeline);
+        this.emitMeetingLifecycle(
+          'meeting_ended',
+          this.activeMeeting.platform,
+          this.activeMeeting.confidence,
+          'stop',
+          this.activeMeeting.signal,
+          undefined,
+          endedTimeline
+        );
       }
       this.activeMeeting = null;
 
@@ -1307,14 +1187,19 @@ export class MeetingDetector extends EventEmitter {
     ];
 
     const processName = signal.process?.toLowerCase() || '';
+    const frontAppName = signal.front_app?.toLowerCase() || '';
+    const processPath = signal.process_path?.toLowerCase() || '';
+    const sessionId = signal.session_id?.toLowerCase() || '';
     const serviceName = signal.service?.toLowerCase() || '';
+    const systemAudioHaystacks = [processName, frontAppName, processPath, sessionId].filter(Boolean);
 
     if (serviceName === 'unknown' && !this.options.emitUnknown) {
       return true;
     }
 
-    // Filter by process name patterns (partial match)
-    if (systemProcessPatterns.some(pattern => processName.includes(pattern))) {
+    // Filter system audio/daemon artifacts even when only front_app/session_id carries
+    // the telltale marker (common for Core Audio Driver wrapper traffic).
+    if (systemProcessPatterns.some((pattern) => systemAudioHaystacks.some((field) => field.includes(pattern)))) {
       return true;
     }
 
@@ -1469,7 +1354,8 @@ export class MeetingDetector extends EventEmitter {
     confidence: MeetingLifecycleEvent['confidence'],
     reason: MeetingLifecycleEvent['reason'],
     signal: MeetingSignal,
-    previousPlatform?: MeetingPlatform
+    previousPlatform?: MeetingPlatform,
+    timeline?: SessionTimelineState
   ): void {
     const payload: MeetingLifecycleEvent = {
       event,
@@ -1478,6 +1364,9 @@ export class MeetingDetector extends EventEmitter {
       confidence,
       reason,
       previous_platform: previousPlatform,
+      session_id: timeline?.session_id,
+      started_at: timeline?.started_at,
+      ended_at: event === 'meeting_ended' ? timeline?.ended_at : undefined,
       raw_signal: this.options.includeRawSignalInLifecycle ? this.sanitizeSignalForOutput(signal) : undefined,
     };
     this.emit(event, payload);
@@ -1507,9 +1396,18 @@ export class MeetingDetector extends EventEmitter {
     const idleMs = Date.now() - this.activeMeeting.lastSeen;
     if (idleMs >= this.options.meetingEndTimeoutMs) {
       const ended = this.activeMeeting;
+      const endedTimeline = endSessionTimeline(ended.timeline);
       this.activeMeeting = null;
       this.meetingEndTimer = undefined;
-      this.emitMeetingLifecycle('meeting_ended', ended.platform, ended.confidence, 'timeout', ended.signal);
+      this.emitMeetingLifecycle(
+        'meeting_ended',
+        ended.platform,
+        ended.confidence,
+        'timeout',
+        ended.signal,
+        undefined,
+        endedTimeline
+      );
       return;
     }
 
@@ -1526,26 +1424,30 @@ export class MeetingDetector extends EventEmitter {
     const now = Date.now();
 
     if (!this.activeMeeting) {
+      const timeline = createSessionTimeline(signal, now);
       this.activeMeeting = {
         platform,
         lastSeen: now,
         confidence,
         signal,
+        timeline,
       };
-      this.emitMeetingLifecycle('meeting_started', platform, confidence, 'signal', signal);
+      this.emitMeetingLifecycle('meeting_started', platform, confidence, 'signal', signal, undefined, timeline);
       this.scheduleMeetingEndCheck();
       return;
     }
 
     if (this.activeMeeting.platform !== platform) {
       const previousPlatform = this.activeMeeting.platform;
+      const timeline = touchSessionTimeline(this.activeMeeting.timeline, now);
       this.activeMeeting = {
         platform,
         lastSeen: now,
         confidence,
         signal,
+        timeline,
       };
-      this.emitMeetingLifecycle('meeting_changed', platform, confidence, 'switch', signal, previousPlatform);
+      this.emitMeetingLifecycle('meeting_changed', platform, confidence, 'switch', signal, previousPlatform, timeline);
       this.scheduleMeetingEndCheck();
       return;
     }
@@ -1553,6 +1455,7 @@ export class MeetingDetector extends EventEmitter {
     this.activeMeeting.lastSeen = now;
     this.activeMeeting.confidence = confidence;
     this.activeMeeting.signal = signal;
+    this.activeMeeting.timeline = touchSessionTimeline(this.activeMeeting.timeline, now);
     this.scheduleMeetingEndCheck();
   }
 
@@ -1562,25 +1465,9 @@ export class MeetingDetector extends EventEmitter {
 
   private isFrontAppConsistentWithService(frontApp: string, service: string): boolean {
     const f = (frontApp || '').toLowerCase();
-    const s = (service || '').toLowerCase();
-    if (!f || !s) return false;
+    if (!f || !service) return false;
 
-    if (s === 'microsoft teams') {
-      return f.includes('teams') || f.includes('msteams');
-    }
-    if (s === 'google meet') {
-      return f.includes('chrome') || f.includes('google meet');
-    }
-    if (s === 'zoom') {
-      return f.includes('zoom');
-    }
-    if (s === 'cisco webex') {
-      return f.includes('webex');
-    }
-    if (s === 'slack') {
-      return f.includes('slack');
-    }
-    return f.includes(s);
+    return classifyPlatformFromNativeApp({ frontApp, windowTitle: '' }) === this.normalizePlatform(service);
   }
 
   private stabilizeSignalContext(signal: MeetingSignal): MeetingSignal {
@@ -1594,7 +1481,7 @@ export class MeetingDetector extends EventEmitter {
     const browserTitleConsistent =
       !!signal.chrome_url &&
       !!rawTitle &&
-      matchBrowserMeetingUrl(signal.chrome_url, rawTitle) === this.normalizePlatform(signal.service);
+      classifyBrowserMeeting(signal.chrome_url, rawTitle) === this.normalizePlatform(signal.service);
 
     if (rawFront && frontConsistent) {
       next.front_app = rawFront;
@@ -1650,15 +1537,8 @@ export class MeetingDetector extends EventEmitter {
       return false;
     }
 
-    const browserPlatform = matchBrowserMeetingUrl(url, signal.window_title || '');
-    if (browserPlatform) {
-      return browserPlatform === this.normalizePlatform(signal.service);
-    }
-
-    return (
-      this.normalizePlatform(signal.service) === 'Cisco Webex' &&
-      (url.includes('web.webex.com/') || url.includes('webex.com/meet/'))
-    );
+    const browserPlatform = classifyBrowserMeeting(url, signal.window_title || '');
+    return browserPlatform === this.normalizePlatform(signal.service);
   }
 
   private cleanupExpiredPendingConfidence(now: number): void {
@@ -1790,87 +1670,13 @@ export class MeetingDetector extends EventEmitter {
     };
   }
 
-  private includesAny(value: string, patterns: string[]): boolean {
-    return patterns.some((pattern) => value.includes(pattern));
-  }
-
   private transformAppName(frontApp: string, process: string, windowTitle = '', chromeUrl = ''): MeetingPlatform {
-    const app = frontApp?.toLowerCase() || '';
-    const proc = process?.toLowerCase() || '';
-    const title = windowTitle?.toLowerCase() || '';
-    const url = chromeUrl.toLowerCase();
-
-    // For Chrome Helper processes, the active tab URL is the definitive source —
-    // it does not depend on which app is currently frontmost.
-    if (url && proc.includes('chrome')) {
-      const browserPlatform = matchBrowserMeetingUrl(url, title);
-      if (browserPlatform) return browserPlatform;
-      if (url.includes('web.webex.com') || url.includes('webex.com/meet')) return 'Cisco Webex';
-      if (url.includes('meet.jit.si') || url.includes('jitsi')) return 'Jitsi Meet';
-      if (url.includes('whereby.com')) return 'Whereby';
-      if (url.includes('bluejeans.com')) return 'BlueJeans';
-      if (url.includes('ringcentral.com')) return 'RingCentral';
-      if (url.includes('chime.aws')) return 'Amazon Chime';
-      if (url.includes('goto.com') || url.includes('gotomeeting.com')) return 'GoToMeeting';
-    }
-
-    // Prefer process identity next because front_app sampling can be stale.
-    if (this.includesAny(proc, ['microsoft teams', 'msteams'])) return 'Microsoft Teams';
-    if (this.includesAny(proc, ['zoom'])) return 'Zoom';
-    if (this.includesAny(proc, ['webex', 'cisco webex'])) return 'Cisco Webex';
-    if (this.includesAny(proc, ['slack'])) return 'Slack';
-    if (this.includesAny(proc, ['google meet', 'meet.google.com'])) return 'Google Meet';
-    if (proc.includes('chrome') && (title.includes('meet.google.com') || /[a-z]{3}-[a-z]{4}-[a-z]{3}/.test(title))) {
-      return 'Google Meet';
-    }
-    if (this.includesAny(proc, ['skype'])) return 'Skype';
-    if (this.includesAny(proc, ['discord'])) return 'Discord';
-    if (this.includesAny(proc, ['facetime'])) return 'FaceTime';
-    if (this.includesAny(proc, ['gotomeeting', 'goto meeting'])) return 'GoToMeeting';
-    if (this.includesAny(proc, ['bluejeans', 'blue jeans'])) return 'BlueJeans';
-    if (this.includesAny(proc, ['jitsi'])) return 'Jitsi Meet';
-    if (this.includesAny(proc, ['whereby'])) return 'Whereby';
-    if (this.includesAny(proc, ['8x8'])) return '8x8';
-    if (this.includesAny(proc, ['ringcentral', 'ring central'])) return 'RingCentral';
-    if (this.includesAny(proc, ['bigbluebutton', 'big blue button'])) return 'BigBlueButton';
-    if (this.includesAny(proc, ['amazon chime', 'chime'])) return 'Amazon Chime';
-    if (this.includesAny(proc, ['google hangouts', 'hangouts'])) return 'Google Hangouts';
-    if (this.includesAny(proc, ['adobe connect'])) return 'Adobe Connect';
-    if (this.includesAny(proc, ['teamviewer'])) return 'TeamViewer';
-    if (this.includesAny(proc, ['anydesk'])) return 'AnyDesk';
-    if (this.includesAny(proc, ['clickmeeting'])) return 'ClickMeeting';
-    if (this.includesAny(proc, ['appear.in'])) return 'Appear.in';
-
-    // Fallback to front_app when process identity is generic/indirect (e.g., Chrome Helper
-    // without a chrome_url resolved). front_app is unreliable when Chrome is backgrounded
-    // — only use it when we have no better signal.
-    if (this.includesAny(app, ['microsoft teams', 'msteams'])) return 'Microsoft Teams';
-    if (this.includesAny(app, ['zoom'])) return 'Zoom';
-    if (this.includesAny(app, ['webex'])) return 'Cisco Webex';
-    if (this.includesAny(app, ['slack'])) return 'Slack';
-    if (this.includesAny(app, ['google meet'])) return 'Google Meet';
-    if (this.includesAny(app, ['chrome']) && (title.includes('meet.google.com') || /[a-z]{3}-[a-z]{4}-[a-z]{3}/.test(title))) {
-      return 'Google Meet';
-    }
-    if (this.includesAny(app, ['skype'])) return 'Skype';
-    if (this.includesAny(app, ['discord'])) return 'Discord';
-    if (this.includesAny(app, ['facetime'])) return 'FaceTime';
-    if (this.includesAny(app, ['gotomeeting'])) return 'GoToMeeting';
-    if (this.includesAny(app, ['bluejeans'])) return 'BlueJeans';
-    if (this.includesAny(app, ['jitsi'])) return 'Jitsi Meet';
-    if (this.includesAny(app, ['whereby'])) return 'Whereby';
-    if (this.includesAny(app, ['8x8'])) return '8x8';
-    if (this.includesAny(app, ['ringcentral'])) return 'RingCentral';
-    if (this.includesAny(app, ['chime'])) return 'Amazon Chime';
-    if (this.includesAny(app, ['hangouts'])) return 'Google Hangouts';
-    if (this.includesAny(app, ['adobe connect'])) return 'Adobe Connect';
-    if (this.includesAny(app, ['teamviewer'])) return 'TeamViewer';
-    if (this.includesAny(app, ['anydesk'])) return 'AnyDesk';
-    if (this.includesAny(app, ['clickmeeting'])) return 'ClickMeeting';
-    if (this.includesAny(app, ['appear.in'])) return 'Appear.in';
-
-    // Final fallback: do not guess.
-    return 'Unknown';
+    return classifyPlatformFromNativeApp({
+      frontApp,
+      process,
+      windowTitle,
+      chromeUrl,
+    });
   }
 
   /**
@@ -1890,13 +1696,7 @@ export class MeetingDetector extends EventEmitter {
 
       // Candidates in priority order. Run ALL checks independently (semicolons, not ||) so
       // every running app is discovered, then resolve ambiguity via front-app tiebreak.
-      const candidates: Array<[string, MeetingPlatform]> = [
-        ['Microsoft Teams', 'Microsoft Teams'],
-        ['zoom.us', 'Zoom'],
-        ['Webex', 'Cisco Webex'],
-        ['Discord', 'Discord'],
-        ['FaceTime', 'FaceTime'],
-      ];
+      const candidates = NATIVE_STARTUP_PROBE_TARGETS.map(({ process, platform }) => [process, platform] as const);
 
       // Query front app in parallel with process checks so we can resolve ambiguity
       // without adding extra latency.
@@ -1908,7 +1708,7 @@ export class MeetingDetector extends EventEmitter {
       const procProbe = spawn('sh', ['-c', fullScript]);
       let output = '';
       procProbe.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
-      procProbe.on('close', () => {
+      procProbe.on('close', async () => {
         // P2 guard: abort if the detector was stopped while the probe was running.
         if (!this.process) return;
 
@@ -1939,19 +1739,34 @@ export class MeetingDetector extends EventEmitter {
         }
 
         const [procName, platform] = selected;
+        const frontMatch = output.match(/FRONTAPP=(.+)/);
+        const frontApp = (frontMatch?.[1] || '').trim();
+        const frontWindowTitle = this.isFrontAppConsistentWithService(frontApp, platform)
+          ? await this.probeFrontWindowTitle()
+          : '';
+        const inferredPlatform = this.shouldEmitStartupProbeMeeting(
+          platform,
+          procName,
+          frontApp,
+          frontWindowTitle
+        );
+        if (!inferredPlatform) {
+          return;
+        }
+
         const now = new Date().toISOString().slice(0, 19) + 'Z';
         const syntheticSignal: MeetingSignal = {
           event: 'meeting_signal',
           timestamp: now,
-          service: platform,
+          service: inferredPlatform,
           verdict: 'allowed',
           preflight: false,
           process: procName,
           pid: '',
           parent_pid: '',
           process_path: '',
-          front_app: procName,
-          window_title: '',
+          front_app: frontApp || procName,
+          window_title: frontWindowTitle,
           session_id: '',
           camera_active: true,
         };
@@ -1964,6 +1779,29 @@ export class MeetingDetector extends EventEmitter {
         const outputSignal = this.sanitizeSignalForOutput(syntheticSignal);
         this.emit('meeting', outputSignal);
       });
+    });
+  }
+
+  private shouldEmitStartupProbeMeeting(
+    platform: MeetingPlatform,
+    processName: string,
+    frontApp: string,
+    frontWindowTitle: string
+  ): MeetingPlatform | null {
+    const normalized = this.normalizePlatform(platform);
+
+    if (
+      MeetingDetector.PRECHECK_PRONE_SERVICES.has(normalized.toLowerCase()) &&
+      !this.isFrontAppConsistentWithService(frontApp, normalized)
+    ) {
+      return null;
+    }
+
+    return classifyNativeMeeting({
+      process: processName,
+      windowTitle: frontWindowTitle,
+      micActive: true,
+      cameraActive: true,
     });
   }
 }

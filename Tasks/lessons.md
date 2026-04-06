@@ -1,5 +1,21 @@
 # Lessons Learned - @mostrom/meeting-detector Publishing
 
+## 2026-04-03: Autonomous Bug-Fix Workflow Must Start With Reproduction
+
+1. **When a bug is reported, create a failing regression test before implementation**
+   - Correction pattern: the user required autonomous bug-fixing with proof, not speculative edits.
+   - Prevention rule: first encode the live failure as a failing automated test (or failing assertion with logs), then implement the fix.
+
+2. **Use subagents for competing fixes, then keep the lowest-risk passing approach**
+   - Correction pattern: the user explicitly requested subagent-driven bug fixes.
+   - Prevention rule: delegate at least two bounded fix strategies in parallel, compare outcomes, and integrate the minimal-change patch that passes targeted and full tests.
+
+## 2026-04-02: Avoid Unrequested Duplicate Planning Documents
+
+1. **Do not create separate spec + plan files unless explicitly requested**
+   - Correction pattern: I created both a spec doc and an implementation plan doc, and the user asked why there were two files.
+   - Prevention rule: default to a single implementation plan document unless the user asks for a separate requirements/spec artifact or review process requires it.
+
 ## 2026-03-03: Initial npm Publishing Setup
 
 ### Key Learnings
@@ -282,3 +298,27 @@
 2. **Browser title matching is the practical web fallback without an extension**
    - Correction pattern: the user explicitly noted that tab URLs are not reliably available without an extension, so serious web detection should rely on window-title patterns for the common case and treat an extension/native-messaging bridge as the optional last-10%-accuracy path.
    - Prevention rule: for browser meeting planning, assume title-based attribution by default and document extension-based enrichment as optional, not as a baseline requirement.
+
+## 2026-04-05: Align Execution With The User’s Goal Before Deep Test-Orchestration Work
+
+1. **Prioritize detector capability goals over test-framework mechanics when the user clarifies intent**
+   - Correction pattern: I continued focusing on Playwright/E2E execution behavior after the user clarified the real goal was provider detection coverage across web/native surfaces.
+   - Prevention rule: when the user reframes the objective as detection correctness, immediately pivot to classifier/detector contracts, arbitration behavior, and evidence outputs; treat test runner issues as secondary tooling concerns.
+
+2. **Translate broad goals into explicit provider-mode coverage tables early**
+   - Correction pattern: progress tracking drifted into command-level debugging instead of clearly showing which provider/mode surfaces were actually covered.
+   - Prevention rule: define and maintain a provider x mode matrix (Google Meet, Zoom, Teams, Slack Huddle, Webex across web/native) at the start of execution, and update it each checkpoint with evidence paths and blockers.
+
+## 2026-04-05: Bug Reports Must Run Through Test-First + Subagent Fix Workflow
+
+1. **Always start bug handling by reproducing with a failing test**
+   - Correction pattern: jumping into implementation before proving the bug increases ambiguity and regression risk.
+   - Prevention rule: when a bug is reported, first add/extend a deterministic failing test that captures the exact failure mode, then proceed to implementation.
+
+2. **Use subagents to attempt fixes after reproduction is in place**
+   - Correction pattern: single-thread fixes can miss alternatives and verification depth.
+   - Prevention rule: after creating the failing test, dispatch focused subagents to propose fixes, validate against the failing test, and integrate the best minimal-risk patch.
+
+3. **Lead with evidence and close with proof**
+   - Correction pattern: bug updates without concrete logs/errors/test failures create unnecessary context switching.
+   - Prevention rule: every bug-fix cycle must include failing test/log evidence first, then passing test evidence after the fix, without requiring extra user prompts.

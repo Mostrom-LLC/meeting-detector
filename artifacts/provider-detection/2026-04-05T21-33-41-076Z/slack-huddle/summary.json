@@ -1,0 +1,14 @@
+{
+  "provider": "slack-huddle",
+  "platform": "Slack",
+  "mode": "native",
+  "status": "fail",
+  "reason": "Timed out waiting for meeting_started after 15000ms",
+  "started_count": 0,
+  "ended_count": 0,
+  "started_platforms": [],
+  "ended_platforms": [],
+  "pass": false,
+  "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T21-33-41-076Z/slack-huddle/events.ndjson",
+  "target_url": "https://app.slack.com/client"
+}

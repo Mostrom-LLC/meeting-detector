@@ -1,0 +1,13 @@
+{
+  "provider": "webex",
+  "platform": "Cisco Webex",
+  "mode": "native",
+  "status": "skipped",
+  "reason": "Missing E2E_WEBEX_NATIVE_URL",
+  "started_count": 0,
+  "ended_count": 0,
+  "started_platforms": [],
+  "ended_platforms": [],
+  "pass": false,
+  "events_path": "/Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/artifacts/provider-detection/2026-04-05T06-31-42-646Z/webex/events.ndjson"
+}

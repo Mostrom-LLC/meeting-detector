@@ -125,6 +125,38 @@ npm start
 
 The CLI prints only positive meeting detections and suppresses duplicate/raw noise where possible.
 
+## Repeatable E2E Checks
+
+The operator guide for repeatable web/native verification lives in [docs/testing/meeting-e2e.md](docs/testing/meeting-e2e.md).
+Detailed required rules and provider checklists live in [docs/testing/meeting-test-rules.md](docs/testing/meeting-test-rules.md).
+
+Detection-first commands (recommended):
+
+```bash
+npm run detect:matrix -- --help
+npm run e2e:validate-env -- all
+npm run detect:matrix:web -- --dry-run
+npm run detect:matrix:native -- --dry-run
+npm run detect:matrix:web -- --manual
+npm run detect:matrix:native -- --manual
+```
+
+Legacy scenario runner commands:
+
+```bash
+npm run e2e:validate-env -- web
+npm run e2e:web
+npm run e2e:validate-env -- native
+npm run e2e:native -- --dry-run
+E2E_NATIVE_CONFIRM=1 npm run e2e:native
+```
+
+- Detector readiness is judged by provider lifecycle evidence in `artifacts/provider-detection/<timestamp>/matrix-summary.json`.
+- `detect:matrix` supports `--manual`, `--auto`, and `--dry-run` execution styles.
+- Native E2E supports `--dry-run` for non-destructive validation and requires `--confirm-live` or `E2E_NATIVE_CONFIRM=1` for live automation.
+- The runners accept Google auth values from either `GOOGLE_EMAIL` / `GOOGLE_APP_PASSWORD` or the legacy `GMAIL_EMAIL` / `GMAIL_APP_PASSWORD` aliases.
+- `OTP_CODE_FILE` defaults to `.otp-codes/latest.txt` when unset.
+
 ## API
 
 ### Exports
@@ -231,6 +263,7 @@ The active release checklist lives in [tasks/success-criteria.md](/Volumes/Samsu
 npm run build
 npm run build:all
 npm test
+npm run e2e:validate-env -- all
 npm run test:native
 npm run dev
 ```

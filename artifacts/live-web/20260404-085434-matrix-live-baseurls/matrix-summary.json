@@ -1,0 +1,79 @@
+{
+  "root": "artifacts/live-web/20260404-085434-matrix-live-baseurls",
+  "generated_at": "2026-04-04T13:06:47.279Z",
+  "total": 5,
+  "pass": 0,
+  "fail": 5,
+  "providers": [
+    {
+      "provider": "google-meet-web",
+      "expected": "Google Meet",
+      "url": "https://meet.google.com/landing",
+      "joined_clicked": true,
+      "left_clicked": false,
+      "started_count": 0,
+      "ended_count": 0,
+      "changed_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "session_ids": [],
+      "pass": false
+    },
+    {
+      "provider": "slack-huddle-web",
+      "expected": "Slack",
+      "url": "https://app.slack.com/client",
+      "joined_clicked": false,
+      "left_clicked": false,
+      "started_count": 0,
+      "ended_count": 0,
+      "changed_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "session_ids": [],
+      "pass": false
+    },
+    {
+      "provider": "teams-web",
+      "expected": "Microsoft Teams",
+      "url": "https://teams.live.com/v2/",
+      "joined_clicked": true,
+      "left_clicked": false,
+      "started_count": 0,
+      "ended_count": 0,
+      "changed_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "session_ids": [],
+      "pass": false
+    },
+    {
+      "provider": "webex-web",
+      "expected": "Cisco Webex",
+      "url": "https://web.webex.com/",
+      "joined_clicked": false,
+      "left_clicked": false,
+      "started_count": 0,
+      "ended_count": 0,
+      "changed_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "session_ids": [],
+      "pass": false
+    },
+    {
+      "provider": "zoom-web",
+      "expected": "Zoom",
+      "url": "https://app.zoom.us/wc/home",
+      "joined_clicked": true,
+      "left_clicked": false,
+      "started_count": 0,
+      "ended_count": 0,
+      "changed_count": 0,
+      "started_platforms": [],
+      "ended_platforms": [],
+      "session_ids": [],
+      "pass": false
+    }
+  ]
+}
