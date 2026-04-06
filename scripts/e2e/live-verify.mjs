@@ -183,6 +183,8 @@ async function verifyProvider(providerName, mode, artifactRoot) {
   const detector = new MeetingDetector({
     startupProbe: false,
     includeRawSignalInLifecycle: true,
+    meetingEndTimeoutMs: 30_000,
+    debug: true,
   });
 
   // Log raw signals for debugging.
