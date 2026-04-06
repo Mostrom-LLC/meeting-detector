@@ -240,7 +240,7 @@ async function verifyProvider(providerName, mode, artifactRoot) {
     // Close the tab or quit the native app.
     if (mode === 'web') {
       console.log(`[live-verify]   Closing Chrome tab for: ${url}`);
-      await closeChromTab(url);
+      await closeChromeTab(url);
     } else {
       console.log(`[live-verify]   Quitting native app: ${nativeApp}`);
       await quitNativeApp(nativeApp);
@@ -298,17 +298,18 @@ async function verifyProvider(providerName, mode, artifactRoot) {
 // ---------------------------------------------------------------------------
 
 async function openInChrome(url) {
+  const safeUrl = escapeAppleString(url);
   const script = `tell application "Google Chrome"
     activate
-    open location "${url}"
+    open location "${safeUrl}"
   end tell`;
   await runAppleScript(script);
   // Brief settle time to allow Chrome to navigate.
   await sleep(2000);
 }
 
-async function closeChromTab(url) {
-  const hostname = safeHostname(url);
+async function closeChromeTab(url) {
+  const hostname = escapeAppleString(safeHostname(url));
   const script = `tell application "Google Chrome"
     set tabClosed to false
     repeat with w in windows
@@ -326,7 +327,8 @@ async function closeChromTab(url) {
 }
 
 async function launchNativeApp(appName) {
-  const script = `tell application "${appName}"
+  const safeName = escapeAppleString(appName);
+  const script = `tell application "${safeName}"
     activate
   end tell`;
   await runAppleScript(script);
@@ -334,10 +336,15 @@ async function launchNativeApp(appName) {
 }
 
 async function quitNativeApp(appName) {
-  const script = `tell application "${appName}"
+  const safeName = escapeAppleString(appName);
+  const script = `tell application "${safeName}"
     quit
   end tell`;
   await runAppleScript(script);
+}
+
+function escapeAppleString(str) {
+  return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 async function runAppleScript(script) {
