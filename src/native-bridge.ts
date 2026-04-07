@@ -5,7 +5,13 @@
  * with fallback to the shell script implementation on macOS.
  */
 
+import { createRequire } from 'node:module';
 import type { MeetingSignal, MeetingLifecycleEvent, MeetingPlatform } from './types.js';
+
+// The compiled output is ESM (`"module": "ES2020"`), so bare `require()`
+// is not defined. createRequire bridges CJS-style require for the napi
+// .node binary lookup below.
+const requireFromHere = createRequire(import.meta.url);
 
 /**
  * Native detector interface matching the Rust exports.
@@ -60,14 +66,15 @@ export function tryLoadNative(): NativeModule | null {
     const platform = process.platform;
     const arch = process.arch;
     
-    // Attempt to load the native module
-    // napi-rs generates platform-specific binaries
-    const binding = require(`../native/meeting-detector-native.${platform}-${arch}.node`);
+    // Attempt to load the native module.
+    // napi-rs generates platform-specific binaries.
+    const binding = requireFromHere(`../native/meeting-detector-native.${platform}-${arch}.node`);
     return binding as NativeModule;
   } catch (e1) {
     try {
-      // Fallback to generic path
-      const binding = require('../native/index.js');
+      // Fallback to the napi-generated index shim, which dispatches to the
+      // right platform binary at runtime.
+      const binding = requireFromHere('../native/index.js');
       return binding as NativeModule;
     } catch (e2) {
       // Native module not available

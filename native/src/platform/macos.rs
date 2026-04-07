@@ -479,6 +479,19 @@ impl MacOSDetector {
 
 impl PlatformDetector for MacOSDetector {
     fn detect(&self) -> DetectorResult<Option<MeetingSignal>> {
+        // Lazy-start the TCC log stream on first detect() call. The stream
+        // runs in a background thread and pushes events through an mpsc
+        // channel until stop_tcc_stream() is called or the receiver drops.
+        // Without this, detect() would only ever fall through to the
+        // camera-active polling path and silently miss every TCC signal.
+        if self.tcc_rx.lock().map(|g| g.is_none()).unwrap_or(false) {
+            if let Err(e) = self.start_tcc_stream() {
+                if self.debug {
+                    eprintln!("[MacOSDetector] start_tcc_stream failed: {:?}", e);
+                }
+            }
+        }
+
         // If TCC stream is active, drain events from it
         if let Ok(guard) = self.tcc_rx.lock() {
             if let Some(rx) = guard.as_ref() {

@@ -817,22 +817,22 @@ export class MeetingDetector extends EventEmitter {
     this.nativePollingInterval = setInterval(() => {
       if (!this.nativeDetector) return;
 
-      // Check for new signals from the native detector
+      // Check for new signals from the native detector. Run them through
+      // normalizeSignal so the JS-side classifier (transformAppName +
+      // browser hint) refines the platform name the same way it used to
+      // refine signals from the legacy shell script.
+      //
+      // The Rust state machine (processSignal / checkMeetingEnd) is NOT
+      // called here: the JS-side pipeline (handleIncomingSignal →
+      // updateMeetingLifecycle → emitMeetingLifecycle) is the canonical
+      // source of `meeting_lifecycle` events. Calling the Rust state
+      // machine in addition would double-emit and the napi field-name
+      // contract (camelCase) is incompatible with the normalized
+      // snake_case signal anyway.
       const signal = this.nativeDetector.detect();
       if (signal) {
-        this.handleIncomingSignal(signal);
-
-        // Also feed through native state machine for lifecycle events
-        const events = this.nativeDetector.processSignal(signal);
-        for (const event of events) {
-          this.emitNativeLifecycleEvent(event);
-        }
-      }
-
-      // Check for meeting end via timeout
-      const endEvent = this.nativeDetector.checkMeetingEnd();
-      if (endEvent) {
-        this.emitNativeLifecycleEvent(endEvent);
+        const normalized = this.normalizeSignal(signal as unknown as Record<string, any>);
+        this.handleIncomingSignal(normalized);
       }
     }, 500);
 
@@ -936,39 +936,6 @@ export class MeetingDetector extends EventEmitter {
    */
   public getNativeVersion(): string | null {
     return this.nativeModule?.version() ?? null;
-  }
-
-  /**
-   * Feed a signal directly into the processing pipeline.
-   * Normalizes the signal (service transform, boolean coercion, browser hints)
-   * the same way parseSignal does. Used for testing without the native module.
-   */
-  public feedSignal(raw: Record<string, any>): void {
-    this.handleIncomingSignal(this.normalizeSignal(raw));
-  }
-
-  /**
-   * Start in manual/test mode — sets up browser and native app probes
-   * and marks the detector as running, but does not require the native module.
-   * Signals must be injected via feedSignal().
-   */
-  public startManual(): void {
-    if (this.nativePollingInterval || this.browserProbeInterval || this.nativeAppProbeInterval) {
-      throw new Error('Detector is already running');
-    }
-
-    // Use a no-op interval to mark the detector as running
-    this.nativePollingInterval = setInterval(() => {}, 60000);
-    this.nativePollingInterval.unref?.();
-
-    if (process.platform === 'darwin') {
-      this.startBrowserTabProbe();
-      this.startNativeAppProbe();
-    }
-
-    if (this.options.startupProbe) {
-      this.probeActiveMeetingAtStartup();
-    }
   }
 
   /**
@@ -1502,22 +1469,31 @@ export class MeetingDetector extends EventEmitter {
     }
   }
 
-  private parseSignal(line: string): MeetingSignal {
-    return this.normalizeSignal(JSON.parse(line) as Record<string, any>);
-  }
-
   private normalizeSignal(signal: Record<string, any>): MeetingSignal {
+    // Accept BOTH snake_case (legacy shell-script JSON) and camelCase
+    // (napi-rs auto-renames Rust snake_case fields to camelCase). Reading
+    // both lets normalizeSignal serve as the single funnel for every
+    // signal source without forcing a Rust-side rename of every field.
+    const front_app = signal.front_app ?? signal.frontApp ?? '';
+    const process_name = signal.process ?? '';
+    const process_path = signal.process_path ?? signal.processPath ?? '';
+    const parent_pid = signal.parent_pid ?? signal.parentPid ?? '';
+    const session_id = signal.session_id ?? signal.sessionId ?? '';
+    const chrome_url_raw = signal.chrome_url ?? signal.chromeUrl ?? '';
+    const window_title_raw = signal.window_title ?? signal.windowTitle ?? '';
+    const camera_active_raw = signal.camera_active ?? signal.cameraActive;
+
     const browserHint = this.getBrowserMeetingHint({
-      process: signal.process || '',
-      front_app: signal.front_app || '',
-      process_path: signal.process_path || '',
+      process: process_name,
+      front_app,
+      process_path,
     });
-    const chromeUrl = signal.chrome_url || browserHint?.url || '';
-    const windowTitle = signal.window_title || browserHint?.title || '';
+    const chromeUrl = chrome_url_raw || browserHint?.url || '';
+    const windowTitle = window_title_raw || browserHint?.title || '';
 
     // Use transformed app name as service if the original service is a system service like 'microphone' or 'camera'
     const originalService = signal.service || '';
-    const transformedService = this.transformAppName(signal.front_app, signal.process, windowTitle, chromeUrl);
+    const transformedService = this.transformAppName(front_app, process_name, windowTitle, chromeUrl);
     const finalService = (originalService === 'microphone' || originalService === 'camera' || !originalService)
       ? transformedService
       : originalService;
@@ -1528,14 +1504,14 @@ export class MeetingDetector extends EventEmitter {
       service: finalService,
       verdict: signal.verdict || '',
       preflight: signal.preflight === 'true' || signal.preflight === true,
-      process: signal.process || '',
+      process: process_name || '',
       pid: signal.pid || '',
-      parent_pid: signal.parent_pid || '',
-      process_path: signal.process_path || '',
-      front_app: signal.front_app || '',
+      parent_pid,
+      process_path,
+      front_app,
       window_title: windowTitle,
-      session_id: signal.session_id || '',
-      camera_active: signal.camera_active === 'true' || signal.camera_active === true,
+      session_id,
+      camera_active: camera_active_raw === 'true' || camera_active_raw === true,
       chrome_url: chromeUrl
     };
   }
