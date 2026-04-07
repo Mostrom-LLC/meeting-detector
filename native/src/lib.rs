@@ -141,14 +141,26 @@ impl NativeMeetingDetector {
         }
     }
 
-    /// Process a signal (for testing or manual signal injection).
+    /// **DEPRECATED — internal use only, do not call from JS.**
+    ///
+    /// Pre-MOS-607 the JS poll loop fed Rust-normalized signals back into
+    /// this method to drive a Rust-side state machine. The JS pipeline now
+    /// owns lifecycle (handleIncomingSignal → updateMeetingLifecycle →
+    /// emitMeetingLifecycle), and feeding a JS-normalized snake_case signal
+    /// to this method causes a `Missing field "parentPid"` napi crash
+    /// because napi-rs auto-renames Rust struct fields to camelCase.
+    ///
+    /// Kept on the napi surface only because removing it would be a
+    /// breaking ABI change for any external caller still depending on it.
+    /// Will be removed in the next major version of @mostrom/meeting-detector.
     #[napi]
     pub fn process_signal(&self, signal: MeetingSignal) -> Vec<MeetingLifecycleEvent> {
         let mut machine = self.state_machine.lock().unwrap();
         machine.process_signal(signal)
     }
 
-    /// Check for meeting end timeout.
+    /// **DEPRECATED — internal use only, do not call from JS.**
+    /// See `process_signal` above for the same deprecation rationale.
     #[napi]
     pub fn check_meeting_end(&self) -> Option<MeetingLifecycleEvent> {
         let mut machine = self.state_machine.lock().unwrap();

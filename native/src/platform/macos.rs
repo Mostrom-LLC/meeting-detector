@@ -41,6 +41,13 @@ pub struct MacOSDetector {
     tcc_rx: Mutex<Option<Receiver<TccEvent>>>,
     /// Handle to the `log stream` child process (for cleanup).
     log_child: Arc<Mutex<Option<Child>>>,
+    /// One-shot flag to prevent the lazy-init in `detect()` from re-trying
+    /// `start_tcc_stream` on every poll cycle when the spawn has previously
+    /// failed (e.g. `log stream` binary missing, TCC permission denied).
+    /// When true, the camera-active fallback path is the only signal source
+    /// for the rest of the detector's lifetime. Cleared by `stop_tcc_stream`
+    /// so the detector can be restarted cleanly.
+    tcc_stream_failed: Mutex<bool>,
     /// Regex patterns compiled once for TCC log parsing.
     re_forward_pid: Regex,
     re_granting: Regex,
@@ -69,6 +76,7 @@ impl MacOSDetector {
         Ok(Self {
             debug: false,
             tcc_rx: Mutex::new(None),
+            tcc_stream_failed: Mutex::new(false),
             log_child: Arc::new(Mutex::new(None)),
             re_forward_pid: Regex::new(r"target_token=\{pid:(\d+)").unwrap(),
             re_granting: Regex::new(
@@ -276,9 +284,13 @@ impl MacOSDetector {
         Ok(())
     }
 
-    /// Stop the TCC log stream.
+    /// Stop the TCC log stream and clear the failure flag so a subsequent
+    /// `start_tcc_stream` (via the lazy-init in `detect()`) can retry the
+    /// spawn after the caller has presumably fixed whatever caused the
+    /// failure (granted TCC permission, installed `/usr/bin/log`, etc.).
     pub fn stop_tcc_stream(&self) {
         *self.tcc_rx.lock().unwrap() = None;
+        *self.tcc_stream_failed.lock().unwrap() = false;
         if let Ok(mut guard) = self.log_child.lock() {
             if let Some(mut child) = guard.take() {
                 let _ = child.kill();
@@ -526,11 +538,30 @@ impl PlatformDetector for MacOSDetector {
         // channel until stop_tcc_stream() is called or the receiver drops.
         // Without this, detect() would only ever fall through to the
         // camera-active polling path and silently miss every TCC signal.
-        if self.tcc_rx.lock().map(|g| g.is_none()).unwrap_or(false) {
+        //
+        // The `tcc_stream_failed` one-shot flag prevents this from
+        // re-attempting `start_tcc_stream` on every poll cycle when the
+        // initial spawn has failed (missing /usr/bin/log binary, TCC
+        // permission denied, etc.) — without it, every 500ms poll would
+        // try to spawn a child process, allocate a regex thread, and emit
+        // a debug error.
+        let needs_init = self
+            .tcc_rx
+            .lock()
+            .map(|g| g.is_none())
+            .unwrap_or(false)
+            && !*self.tcc_stream_failed.lock().unwrap();
+        if needs_init {
             if let Err(e) = self.start_tcc_stream() {
                 if self.debug {
-                    eprintln!("[MacOSDetector] start_tcc_stream failed: {:?}", e);
+                    eprintln!(
+                        "[MacOSDetector] start_tcc_stream failed: {:?} \
+                         — falling back to camera-active polling for the \
+                         rest of this detector's lifetime",
+                        e
+                    );
                 }
+                *self.tcc_stream_failed.lock().unwrap() = true;
             }
         }
 
@@ -696,14 +727,31 @@ mod tests {
 
     #[test]
     fn test_tcc_authreq_skips_low_pids() {
+        // The AUTHREQ_CTX msgID prefix is NOT a guaranteed PID — it can be a
+        // forwarded system ID (observed: 187, 594) that does not correspond
+        // to any real user process. The runtime guard in start_tcc_stream()
+        // requires the prefix to be > 1000 before treating it as a PID.
+        // This test verifies that the regex captures known low system IDs
+        // that the runtime guard will then reject.
+        const SYSTEM_PID_THRESHOLD: u32 = 1000;
         let re = Regex::new(
             r"AUTHREQ_CTX: msgID=(\d+)\.\d+,.*service=kTCCService(Microphone|Camera),\s*preflight=(yes|no)",
         )
         .unwrap();
-        let line = "AUTHREQ_CTX: msgID=187.5, function=TCCAccessPreflight, service=kTCCServiceMicrophone, preflight=yes";
-        let caps = re.captures(line).unwrap();
-        let pid: u32 = caps[1].parse().unwrap();
-        assert!(pid <= 500, "PID 187 should be filtered out");
+
+        for low_pid_line in &[
+            "AUTHREQ_CTX: msgID=187.5, function=TCCAccessPreflight, service=kTCCServiceMicrophone, preflight=yes",
+            "AUTHREQ_CTX: msgID=594.12340, function=TCCAccessPreflight, service=kTCCServiceMicrophone, preflight=no",
+        ] {
+            let caps = re.captures(low_pid_line).unwrap();
+            let pid: u32 = caps[1].parse().unwrap();
+            assert!(
+                pid <= SYSTEM_PID_THRESHOLD,
+                "msgID prefix {} should be in the system-PID range and be filtered by the runtime guard (> {})",
+                pid,
+                SYSTEM_PID_THRESHOLD
+            );
+        }
     }
 
     #[test]

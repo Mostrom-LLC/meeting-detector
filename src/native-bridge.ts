@@ -23,7 +23,15 @@ export interface NativeDetector {
   isRunning(): boolean;
   platformName(): string;
   isSupported(): boolean;
+  /**
+   * @deprecated Internal use only — do NOT call from JS. The JS pipeline
+   * (handleIncomingSignal → updateMeetingLifecycle → emitMeetingLifecycle)
+   * owns lifecycle. Feeding a JS-normalized snake_case signal here causes
+   * a `Missing field "parentPid"` napi crash because napi-rs auto-renames
+   * Rust struct fields to camelCase. Will be removed in the next major.
+   */
   processSignal(signal: MeetingSignal): MeetingLifecycleEvent[];
+  /** @deprecated Internal use only — see `processSignal` above. */
   checkMeetingEnd(): MeetingLifecycleEvent | null;
   cleanupSessions(): void;
 }
