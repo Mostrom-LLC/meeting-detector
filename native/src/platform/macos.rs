@@ -45,6 +45,12 @@ pub struct MacOSDetector {
     re_forward_pid: Regex,
     re_granting: Regex,
     re_authreq: Regex,
+    /// AUTHREQ_PROMPTING lines carry the real client PID after a
+    /// `Sub:{<bundle>}Resp:{TCCDProcess: identifier=..., pid=NNNNN, ...}`
+    /// payload. The msgID prefix on AUTHREQ_CTX is unreliable: it can be a
+    /// forwarded system ID (e.g. 187, 594) instead of the real requesting
+    /// process. PROMPTING is the authoritative source when present.
+    re_authreq_prompting: Regex,
 }
 
 // Manual Debug impl since Child doesn't implement Debug
@@ -71,6 +77,10 @@ impl MacOSDetector {
             .unwrap(),
             re_authreq: Regex::new(
                 r"AUTHREQ_CTX: msgID=(\d+)\.\d+,.*service=kTCCService(Microphone|Camera),\s*preflight=(yes|no)",
+            )
+            .unwrap(),
+            re_authreq_prompting: Regex::new(
+                r"AUTHREQ_PROMPTING:.*service=kTCCService(Microphone|Camera).*pid=(\d+)",
             )
             .unwrap(),
         })
@@ -110,6 +120,7 @@ impl MacOSDetector {
         let re_forward = self.re_forward_pid.clone();
         let re_granting = self.re_granting.clone();
         let re_authreq = self.re_authreq.clone();
+        let re_authreq_prompting = self.re_authreq_prompting.clone();
         let debug = self.debug;
 
         let mut child_for_thread = child;
@@ -181,25 +192,56 @@ impl MacOSDetector {
                     }
                 }
 
-                // Parse AUTHREQ_CTX lines (msgID=PID.counter)
+                // Parse AUTHREQ_CTX lines (msgID=PID.counter).
+                //
+                // The msgID prefix is NOT a guaranteed PID — it can be a
+                // forwarded system ID (observed: 187, 594) that happens to
+                // be > 500 but does not correspond to any user process. We
+                // still capture service/preflight here, but we DEFER setting
+                // current_pid until an AUTHREQ_PROMPTING line confirms the
+                // real client PID. If no PROMPTING follows in the same
+                // accumulator window, fall back to the msgID prefix only
+                // when it's well above the system-PID range.
                 if let Some(caps) = re_authreq.captures(&line) {
+                    current_svc = Some(if &caps[2] == "Microphone" {
+                        "microphone"
+                    } else {
+                        "camera"
+                    }.to_string());
+                    let is_preflight = &caps[3] == "yes";
+                    current_preflight = Some(is_preflight);
+                    if current_verdict.is_none() {
+                        current_verdict = Some(if is_preflight {
+                            "requested"
+                        } else {
+                            "allowed"
+                        }.to_string());
+                    }
                     if let Ok(candidate_pid) = caps[1].parse::<u32>() {
-                        // Skip system message IDs (PID <= 500)
-                        if candidate_pid > 500 {
+                        // Conservative msgID-prefix fallback: only accept as
+                        // a real PID if the prefix is well above the known
+                        // system-ID range and PROMPTING hasn't already
+                        // populated current_pid.
+                        if candidate_pid > 1000 && current_pid.is_none() {
                             current_pid = Some(candidate_pid);
-                            current_svc = Some(if &caps[2] == "Microphone" {
-                                "microphone"
-                            } else {
-                                "camera"
-                            }.to_string());
-                            let is_preflight = &caps[3] == "yes";
-                            current_preflight = Some(is_preflight);
+                        }
+                    }
+                }
+
+                // Parse AUTHREQ_PROMPTING — the authoritative client PID
+                // for an in-flight TCC prompt. Always overrides any prior
+                // msgID-prefix guess in the current accumulator window.
+                if let Some(caps) = re_authreq_prompting.captures(&line) {
+                    current_svc = Some(if &caps[1] == "Microphone" {
+                        "microphone"
+                    } else {
+                        "camera"
+                    }.to_string());
+                    if let Ok(real_pid) = caps[2].parse::<u32>() {
+                        if real_pid > 100 {
+                            current_pid = Some(real_pid);
                             if current_verdict.is_none() {
-                                current_verdict = Some(if is_preflight {
-                                    "requested"
-                                } else {
-                                    "allowed"
-                                }.to_string());
+                                current_verdict = Some("requested".to_string());
                             }
                         }
                     }

@@ -51,6 +51,13 @@ detector.onMeeting((signal) => {
   console.log(`[audit] meeting_signal #${eventCount}: ${signal.service} | ${signal.process} | pid=${signal.pid} | front=${signal.front_app}`);
 });
 
+let lifecycleCount = 0;
+detector.on('meeting_lifecycle', (event) => {
+  lifecycleCount += 1;
+  writeRecord('meeting_lifecycle', { event_index: lifecycleCount, event });
+  console.log(`[audit] meeting_lifecycle #${lifecycleCount}: ${event.event} ${event.platform}`);
+});
+
 detector.onError((error) => {
   errorCount += 1;
   writeRecord('detector_error', { error_index: errorCount, message: error.message });

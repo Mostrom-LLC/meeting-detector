@@ -142,6 +142,28 @@ export class MeetingDetector extends EventEmitter {
     'jitsi meet'
   ]);
 
+  /**
+   * Lowercase canonical service names that count as a real meeting platform
+   * for filtering decisions in shouldIgnoreSignal. Keep in sync with the
+   * `MeetingPlatform` type in types.ts.
+   */
+  private static readonly KNOWN_MEETING_SERVICES = new Set([
+    'microsoft teams',
+    'zoom',
+    'google meet',
+    'slack',
+    'cisco webex',
+    'discord',
+    'facetime',
+    'skype',
+    'whereby',
+    'gotomeeting',
+    'bluejeans',
+    'jitsi meet',
+    'amazon chime',
+    'google hangouts',
+  ]);
+
   private static readonly RECORDER_PROCESSES = new Set([
     'obs',
     'obs studio',
@@ -1042,15 +1064,26 @@ export class MeetingDetector extends EventEmitter {
       return true;
     }
 
-    // Block main browser processes — actual media signals come from Helper/Renderer
-    // subprocesses (e.g., "Google Chrome Helper"). The main browser process makes TCC
-    // requests for generic reasons (e.g., initial permission grant), not for active calls.
-    // Must be exact-match to avoid blocking "Google Chrome Helper".
+    // Block main browser processes — actual TCC media signals normally come
+    // from Helper/Renderer subprocesses (e.g., "Google Chrome Helper"). The
+    // main browser process makes TCC requests for generic reasons (initial
+    // permission grant), not for active calls. Must be exact-match to avoid
+    // blocking "Google Chrome Helper".
+    //
+    // EXCEPTION: the macOS camera-active fallback path (used when no fresh
+    // TCC events fire because the browser already has the permission grant)
+    // emits a signal with process = front_app = "Google Chrome". By the
+    // time normalizeSignal has run, the service field has been re-classified
+    // to a real platform name (e.g. "Google Meet") via the window title.
+    // If the classifier successfully resolved the platform, the signal is a
+    // real meeting and should NOT be filtered just because the process name
+    // is the bare browser binary.
     const mainBrowserProcesses = new Set([
       'google chrome', 'safari', 'microsoft edge', 'firefox',
       'brave browser', 'arc', 'opera', 'vivaldi',
     ]);
-    if (mainBrowserProcesses.has(processName)) {
+    const knownMeetingService = MeetingDetector.KNOWN_MEETING_SERVICES.has(serviceName);
+    if (mainBrowserProcesses.has(processName) && !knownMeetingService) {
       return true;
     }
 
@@ -1491,12 +1524,21 @@ export class MeetingDetector extends EventEmitter {
     const chromeUrl = chrome_url_raw || browserHint?.url || '';
     const windowTitle = window_title_raw || browserHint?.title || '';
 
-    // Use transformed app name as service if the original service is a system service like 'microphone' or 'camera'
+    // Always run transformAppName and prefer it when it produces a real
+    // platform classification. The Rust camera-active fallback path sets
+    // service = front_app (e.g. "Google Chrome", "Slack") which is too
+    // generic to survive the JS-side mainBrowserProcesses filter — and the
+    // shell-script TCC events used to put "microphone"/"camera" in service
+    // instead. Both shapes need re-classification through the JS classifier
+    // so the lifecycle pipeline sees a canonical platform name.
     const originalService = signal.service || '';
     const transformedService = this.transformAppName(front_app, process_name, windowTitle, chromeUrl);
-    const finalService = (originalService === 'microphone' || originalService === 'camera' || !originalService)
+    const transformedIsKnown = !!transformedService && transformedService !== 'Unknown';
+    const finalService = transformedIsKnown
       ? transformedService
-      : originalService;
+      : (originalService === 'microphone' || originalService === 'camera' || !originalService)
+        ? transformedService
+        : originalService;
 
     return {
       event: signal.event,
