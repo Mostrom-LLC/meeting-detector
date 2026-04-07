@@ -15,6 +15,11 @@ AGENTS.md
 NPM_PUBLISHING_PLAN.md
 tasks/
 
+# MOS-607 task + verification files are tracked even though tasks/ is
+# generally ignored — they document the live-meeting verification work
+# and need to be reviewable in PRs alongside the code changes.
+!Tasks/backlog/MOS-607*.md
+
 # Rust build output
 target/
 native/target/
