@@ -47,12 +47,12 @@ Plus **infrastructure**: `scripts/meeting-audit-runner.mjs` now writes `meeting_
 
 | # | Scenario | Required outcome | Captured? | Evidence |
 |---|----------|------------------|-----------|----------|
-| 7 | **Google Meet (Chrome web)** | `meeting_started platform=google-meet`, `meeting_ended` | ✅ **PASS** (both events) | `logs/mos-607/verification/meet-chrome.{ndjson,lifecycle.json,audit.log,window.png,notes.md}` |
-| 8 | Zoom (web) | `meeting_started platform=zoom`, `meeting_ended` | ❌ Not captured | — |
-| 9 | Zoom (native macOS) | `meeting_started platform=zoom`, `meeting_ended` | ❌ Blocked: app install | Zoom installer requires `sudo` for the `.pkg`. No interactive terminal in this session. `brew install --cask zoom-for-it-admins` has the same dependency. `/Applications/Zoom*` not present at start. |
+| 7 | **Google Meet (Chrome web)** | `meeting_started platform=google-meet`, `meeting_ended` | ✅ **PASS** (both events, timeout-driven end) | `logs/mos-607/verification/meet-chrome.{ndjson,lifecycle.json,audit.log,window.png,notes.md}` |
+| 8 | Zoom (web) | `meeting_started platform=zoom`, `meeting_ended` | ❌ Not captured (sign-in flow) | — |
+| 9 | **Zoom (native macOS)** | `meeting_started platform=zoom`, `meeting_ended` | ✅ **PASS** (both events, timeout-driven end after defocus to Chrome) | `logs/mos-607/verification/zoom-native.{ndjson,lifecycle.json,audit.log,window.png,notes.md}` |
 | 10 | Microsoft Teams (web) | `meeting_started platform=microsoft-teams`, `meeting_ended` | ❌ Not captured | — |
 | 11 | Microsoft Teams (native) | `meeting_started platform=microsoft-teams`, `meeting_ended` | ❌ Not captured (app installed at `/Applications/Microsoft Teams.app`) | — |
-| 12 | **Slack huddle (native)** | `meeting_started platform=slack`, `meeting_ended` | 🟡 **PARTIAL** — `meeting_started` captured, `meeting_ended` did not fire (real production gap, see [Open Items](#open-items)) | `logs/mos-607/verification/slack-huddle.{ndjson,lifecycle.json,audit.log,window.png,notes.md}` |
+| 12 | **Slack huddle (native)** | `meeting_started platform=slack`, `meeting_ended` | ✅ **PASS** (both events; `meeting_ended` fired via detector-stop path with `reason: "stop"`, not natural `timeout`. Timeout-driven end is blocked by the camera-active fallback persistence bug — see [Open Items](#open-items).) | `logs/mos-607/verification/slack-huddle.{ndjson,lifecycle.json,audit.log,window.png,notes.md}` |
 | 13 | Webex (native) | `meeting_started platform=cisco-webex`, `meeting_ended` | ❌ Not captured (app installed at `/Applications/Webex.app`) | — |
 | 14 | 10-min idle baseline | Zero `meeting_started` events | ❌ Not run | — |
 | 15 | Live diff vs legacy `meeting-detect.sh` | Per-row parity ±5s, no missing platforms | ❌ Not run | Requires every row of #7–#14 to be re-captured against `git show 652ee04^:meeting-detect.sh`. None of those re-runs were performed. |
