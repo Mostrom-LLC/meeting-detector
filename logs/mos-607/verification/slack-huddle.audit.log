@@ -1,0 +1,383 @@
+[MeetingDetector] Native module loaded, platform: macOS, supported: true
+[audit] writing detector events to: /Volumes/Samsung/repositories/mostrom/harke/harke-meeting-detector/logs/mos-607/verification/slack-huddle.ndjson
+[audit] dedupe window: 5000ms
+[MeetingDetector] Starting native detection
+[MeetingDetector] Started monitoring
+[MeetingDetector] Ignoring signal: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:54:20.697644+00:00',
+  service: 'Google Chrome',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Google Chrome',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Google Chrome',
+  window_title: '(2) Job Interview Simulation and Training - Mock Interview - YouTube - Google Chrome - kaise (Main)',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Ignoring signal: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:54:25.377713+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Jarvis (DM) - Mostrom, LLC - 49 new items - Slack',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[audit] meeting_lifecycle #1: meeting_started Slack
+[MeetingDetector] Parsed signal: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:54:31.464466+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: '',
+  session_id: '',
+  camera_active: true,
+  chrome_url: undefined,
+  mic_active: true
+}
+[audit] meeting_signal #1: Slack | Slack | pid= | front=Slack
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:54:31.960846+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Huddles - Mostrom, LLC - 49 new items - Slack',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:54:47.035008+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Huddles - Mostrom, LLC - 49 new items - Slack',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:55:02.478275+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Huddles - Mostrom, LLC - 49 new items - Slack',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:55:17.564503+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Huddles - Mostrom, LLC - 49 new items - Slack',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:55:23.275929+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:55:38.288262+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:55:53.811063+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:56:09.296379+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:56:24.575605+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:56:40.196675+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:56:55.717835+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:57:11.222143+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:57:26.702336+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:57:42.219512+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:57:57.748805+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:58:13.293275+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Ignoring signal: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:58:27.388841+00:00',
+  service: 'Slack',
+  verdict: 'requested',
+  preflight: true,
+  process: 'com.apple.WebKit.GPU',
+  pid: '2686',
+  parent_pid: '1',
+  process_path: '/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Ignoring signal: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:58:27.900785+00:00',
+  service: 'Slack',
+  verdict: 'requested',
+  preflight: false,
+  process: 'com.apple.WebKit.GPU',
+  pid: '2686',
+  parent_pid: '1',
+  process_path: '/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[MeetingDetector] Skipping duplicate session: {
+  event: 'meeting_signal',
+  timestamp: '2026-04-07T10:58:28.381362+00:00',
+  service: 'Slack',
+  verdict: 'allowed',
+  preflight: false,
+  process: 'Slack',
+  pid: '',
+  parent_pid: '',
+  process_path: '',
+  front_app: 'Slack',
+  window_title: 'Slack - Huddle Preview',
+  session_id: '',
+  camera_active: true,
+  chrome_url: '',
+  mic_active: true
+}
+[audit] meeting_lifecycle #2: meeting_ended Slack
+[MeetingDetector] Stopped monitoring
