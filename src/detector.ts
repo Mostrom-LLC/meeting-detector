@@ -1524,21 +1524,39 @@ export class MeetingDetector extends EventEmitter {
     const chromeUrl = chrome_url_raw || browserHint?.url || '';
     const windowTitle = window_title_raw || browserHint?.title || '';
 
-    // Always run transformAppName and prefer it when it produces a real
+    // Always run BOTH classifiers and prefer whichever produces a real
     // platform classification. The Rust camera-active fallback path sets
     // service = front_app (e.g. "Google Chrome", "Slack") which is too
     // generic to survive the JS-side mainBrowserProcesses filter — and the
     // shell-script TCC events used to put "microphone"/"camera" in service
-    // instead. Both shapes need re-classification through the JS classifier
+    // instead. Both shapes need re-classification through a JS classifier
     // so the lifecycle pipeline sees a canonical platform name.
+    //
+    // Order of preference:
+    //   1. classifyBrowserMeeting(chrome_url, window_title) — URL-based,
+    //      best for browser-tab meetings (Meet, Zoom web, Teams web,
+    //      Slack huddle, Webex web).
+    //   2. classifyPlatformFromNativeApp(...) — process/window/title-based,
+    //      best for native apps and Chrome with a meeting-room title.
+    //   3. The original `service` field if it was already a known service.
     const originalService = signal.service || '';
+    const browserService = chromeUrl
+      ? classifyBrowserMeeting(chromeUrl, windowTitle)
+      : 'Unknown';
+    const browserIsKnown = browserService && browserService !== 'Unknown';
     const transformedService = this.transformAppName(front_app, process_name, windowTitle, chromeUrl);
     const transformedIsKnown = !!transformedService && transformedService !== 'Unknown';
-    const finalService = transformedIsKnown
-      ? transformedService
-      : (originalService === 'microphone' || originalService === 'camera' || !originalService)
-        ? transformedService
-        : originalService;
+
+    let finalService: string;
+    if (browserIsKnown) {
+      finalService = browserService;
+    } else if (transformedIsKnown) {
+      finalService = transformedService;
+    } else if (originalService === 'microphone' || originalService === 'camera' || !originalService) {
+      finalService = transformedService;
+    } else {
+      finalService = originalService;
+    }
 
     return {
       event: signal.event,

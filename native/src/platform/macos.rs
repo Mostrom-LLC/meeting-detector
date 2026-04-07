@@ -554,10 +554,25 @@ impl PlatformDetector for MacOSDetector {
             }
         }
 
-        // Fallback: camera-based polling (catches cases where TCC didn't fire)
+        // Fallback: camera-based polling (catches cases where TCC didn't fire,
+        // typically because the front-most app already has its TCC grant from
+        // a previous session — common for browser-based meetings).
         if self.is_camera_active() {
             let front_app = self.get_front_app().unwrap_or_default();
             let window_title = self.get_window_title().unwrap_or_default();
+
+            // For Chrome/Chromium-based browsers, also fetch the active tab
+            // URL via AppleScript so the JS-side classifyBrowserMeeting() URL
+            // matchers (Google Meet, Zoom web, Teams web, Slack huddle, Webex)
+            // can recognise the meeting platform from the tab address even
+            // when the window-title classifier wouldn't.
+            let chrome_url = if front_app.contains("Google Chrome")
+                || front_app.contains("Chrome Helper")
+            {
+                self.get_chrome_url()
+            } else {
+                None
+            };
 
             let signal = MeetingSignal {
                 event: "meeting_signal".to_string(),
@@ -573,7 +588,7 @@ impl PlatformDetector for MacOSDetector {
                 window_title,
                 session_id: self.get_session_id(),
                 camera_active: true,
-                chrome_url: None,
+                chrome_url,
             };
 
             return Ok(Some(signal));

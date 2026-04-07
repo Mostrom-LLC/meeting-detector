@@ -142,6 +142,28 @@ export function classifyPlatformFromNativeApp(input: NativeAppContext): MeetingP
     return 'Google Meet';
   }
 
+  // Browser window-title fallback: when the active app is a Chrome/Safari/
+  // Edge/Firefox window, the window title typically embeds the active tab's
+  // page name, e.g.:
+  //   "Calendar | Calendar | Microsoft Teams - Google Chrome - kaise (Main)"
+  //   "Zoom Meeting - Google Chrome"
+  //   "Webex - Google Chrome"
+  // Use the title to detect web-based meeting platforms even when neither
+  // chromeUrl nor a meeting-room URL pattern is available. Restricted to
+  // browser front apps so we don't false-positive on native apps that
+  // happen to have a platform name in their window title.
+  const isBrowserFrontApp =
+    frontApp.includes('chrome') ||
+    frontApp.includes('safari') ||
+    frontApp.includes('firefox') ||
+    frontApp.includes('microsoft edge');
+  if (isBrowserFrontApp) {
+    const titlePlatform = classifyTextPlatform(title);
+    if (titlePlatform) {
+      return titlePlatform;
+    }
+  }
+
   return 'Unknown';
 }
 
